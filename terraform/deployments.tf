@@ -13,3 +13,27 @@ resource "prefect_deployment" "contracts" {
 
   version = "v1"
 }
+
+resource "prefect_deployment" "router_smoke" {
+  name    = "router-smoke"
+  flow_id = prefect_flow.router_smoke.id
+
+  paused = false
+
+  pull_steps = [
+    {
+      type       = "git_clone"
+      repository = "https://github.com/Oremus-Labs/ol-etl-controlplane.git"
+      branch     = "main"
+    }
+  ]
+
+  # The git_clone step clones into a directory named after the repo.
+  path       = "ol-etl-controlplane"
+  entrypoint = "src/ol_etl_controlplane/flows/router_smoke_flow.py:router_smoke_flow"
+
+  work_pool_name  = prefect_work_pool.general.name
+  work_queue_name = "default"
+
+  version = "v1"
+}
