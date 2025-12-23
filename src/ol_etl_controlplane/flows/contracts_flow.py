@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import socket
 from dataclasses import dataclass
-from typing import Optional
 from urllib.parse import urlparse
 
 import boto3
@@ -27,7 +26,7 @@ def _safe_detail(detail: str) -> str:
 
 
 @retry(wait=wait_exponential(min=1, max=10), stop=stop_after_attempt(5))
-def _http_check(url: str, headers: Optional[dict[str, str]] = None) -> tuple[int, str]:
+def _http_check(url: str, headers: dict[str, str] | None = None) -> tuple[int, str]:
     with httpx.Client(timeout=10.0, headers=headers, follow_redirects=True) as client:
         r = client.get(url)
         return r.status_code, r.text[:2000]
@@ -110,7 +109,11 @@ def check_embedding(settings: Settings) -> ContractResult:
 
 @task
 def check_s3_datasets(settings: Settings) -> ContractResult:
-    missing = [k for k, v in [("S3_ACCESS_KEY", settings.s3_access_key), ("S3_SECRET_KEY", settings.s3_secret_key)] if not v]
+    required = [
+        ("S3_ACCESS_KEY", settings.s3_access_key),
+        ("S3_SECRET_KEY", settings.s3_secret_key),
+    ]
+    missing = [k for k, v in required if not v]
     if missing:
         return ContractResult("s3", False, f"Missing config: {', '.join(missing)}")
 
@@ -147,9 +150,9 @@ def check_nextcloud_webdav(settings: Settings) -> ContractResult:
     url = f"{base}{path}/"
 
     headers = {"Depth": "0"}
-    body = """<?xml version="1.0" encoding="utf-8" ?>
+    body = b"""<?xml version="1.0" encoding="utf-8" ?>
 <d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>
-""".encode("utf-8")
+"""
 
     try:
         with httpx.Client(timeout=15.0, follow_redirects=True) as client:
@@ -209,4 +212,3 @@ def contracts_flow() -> list[ContractResult]:
 
 if __name__ == "__main__":
     contracts_flow()
-

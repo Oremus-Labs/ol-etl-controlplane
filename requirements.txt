@@ -1,0 +1,3 @@
+-e .
+git+https://github.com/Oremus-Labs/ol-rag-pipeline-core.git@main
+
