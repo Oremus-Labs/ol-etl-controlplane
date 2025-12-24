@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     qdrant_api_key: str | None = Field(default=None, alias="QDRANT_API_KEY")
     qdrant_collection: str = Field(default="library_chunks_v1", alias="QDRANT_COLLECTION")
 
-    embedding_base_url: str = Field(alias="EMBEDDING_BASE_URL")
+    embedding_base_url: str | None = Field(default=None, alias="EMBEDDING_BASE_URL")
     embedding_api_key: str | None = Field(default=None, alias="EMBEDDING_API_KEY")
     embedding_max_batch_texts: int = Field(default=16, alias="EMBEDDING_MAX_BATCH_TEXTS")
     embedding_max_batch_chars: int = Field(default=12000, alias="EMBEDDING_MAX_BATCH_CHARS")
@@ -33,12 +33,12 @@ class Settings(BaseSettings):
     s3_access_key: str | None = Field(default=None, alias="S3_ACCESS_KEY")
     s3_secret_key: str | None = Field(default=None, alias="S3_SECRET_KEY")
 
-    nextcloud_webdav_url: str = Field(alias="NEXTCLOUD_WEBDAV_URL")
-    nextcloud_user: str = Field(alias="NEXTCLOUD_USER")
+    nextcloud_webdav_url: str | None = Field(default=None, alias="NEXTCLOUD_WEBDAV_URL")
+    nextcloud_user: str | None = Field(default=None, alias="NEXTCLOUD_USER")
     nextcloud_app_password: str | None = Field(default=None, alias="NEXTCLOUD_APP_PASSWORD")
     nextcloud_ingest_path: str = Field(default="ETL/Ingest", alias="NEXTCLOUD_INGEST_PATH")
 
-    nats_url: str = Field(alias="NATS_URL")
+    nats_url: str | None = Field(default=None, alias="NATS_URL")
     nats_subject: str = Field(default="docs.discovered", alias="NATS_SUBJECT")
 
     nextcloud_max_files: int = Field(default=25, alias="NEXTCLOUD_MAX_FILES")
@@ -58,7 +58,10 @@ class Settings(BaseSettings):
     ocr_engines: str = Field(
         default="mineru,monkeyocr_pro,qwen3_vl",
         alias="OCR_ENGINES",
-        description="Comma-separated ol-llm-service OCR engine names (e.g. mineru,monkeyocr_pro,qwen3_vl).",
+        description=(
+            "Comma-separated ol-llm-service OCR engine names "
+            "(e.g. mineru,monkeyocr_pro,qwen3_vl)."
+        ),
     )
     ocr_pdf_dpi: int = Field(default=200, alias="OCR_PDF_DPI")
     ocr_pdf_max_pages: int | None = Field(default=None, alias="OCR_PDF_MAX_PAGES")
@@ -70,7 +73,10 @@ class Settings(BaseSettings):
     eval_queries_json: str | None = Field(
         default=None,
         alias="EVAL_QUERIES_JSON",
-        description="JSON list of eval queries with optional expected document ids; written to MinIO report.",
+        description=(
+            "JSON list of eval queries with optional expected document ids; "
+            "written to MinIO report."
+        ),
     )
 
     # VPN safety/rotation (for high-volume external crawls)
@@ -79,7 +85,10 @@ class Settings(BaseSettings):
     vpn_required: bool = Field(
         default=True,
         alias="VPN_REQUIRED",
-        description="If true, external HTTP(S) fetches require an active VPN (Gluetun) or they fail fast.",
+        description=(
+            "If true, external HTTP(S) fetches require an active VPN (Gluetun) "
+            "or they fail fast."
+        ),
     )
     vpn_rotate_every_n_requests: int = Field(
         default=10,

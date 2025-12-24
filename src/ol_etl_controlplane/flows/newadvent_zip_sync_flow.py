@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -31,11 +32,32 @@ def _pg_dsn_from_env(settings) -> str:  # noqa: ANN001
     return cfg.build_dsn()
 
 
+_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+
+
+def _extract_title_from_html(body: bytes) -> str | None:
+    try:
+        text = body[:65536].decode("utf-8", errors="replace")
+    except Exception:  # noqa: BLE001
+        return None
+    m = _TITLE_RE.search(text)
+    if not m:
+        return None
+    title = re.sub(r"\s+", " ", m.group(1) or "").strip()
+    return title or None
+
+
+def _canonical_url_for_zip_path(path: str) -> str:
+    return "https://www.newadvent.org/" + path.lstrip("/")
+
+
 @flow(name="newadvent_zip_sync_flow")
 def newadvent_zip_sync_flow() -> dict[str, int]:
     settings = load_settings()
     logger = get_run_logger()
 
+    if not settings.nats_url:
+        raise RuntimeError("Missing NATS_URL")
     if not settings.s3_access_key or not settings.s3_secret_key:
         raise RuntimeError("Missing S3_ACCESS_KEY / S3_SECRET_KEY")
 
@@ -62,6 +84,8 @@ def newadvent_zip_sync_flow() -> dict[str, int]:
         source_uri = f"newadvent_zip://{entry.path}"
         document_id = stable_document_id(source, source_uri)
         fingerprint = sha256_bytes(entry.body)
+        canonical_url = _canonical_url_for_zip_path(entry.path)
+        title = _extract_title_from_html(entry.body) if entry.content_type == "text/html" else None
 
         filename = Path(entry.path).name or "entry.bin"
         with connect(dsn, schema="public") as conn:
@@ -69,24 +93,31 @@ def newadvent_zip_sync_flow() -> dict[str, int]:
             files_repo = DocumentFileRepository(conn)
 
             existing = docs.get_document(document_id)
-            if existing and existing.content_fingerprint == fingerprint:
-                skipped += 1
-                continue
+            status = existing.status if existing else "discovered"
+            is_scanned = existing.is_scanned if existing else None
 
             raw_key = f"library/raw/{source}/{document_id}/{filename}"
-            raw_uri = s3.put_bytes(raw_key, entry.body, content_type=entry.content_type)
 
             docs.upsert_document(
                 Document(
                     document_id=document_id,
                     source=source,
                     source_uri=source_uri,
+                    canonical_url=canonical_url,
+                    title=title,
                     content_fingerprint=fingerprint,
                     content_type=entry.content_type,
-                    status="discovered",
+                    is_scanned=is_scanned,
+                    status=status,
                     source_dataset=f"zip:{settings.dataset_version}",
                 )
             )
+
+            if existing and existing.content_fingerprint == fingerprint:
+                skipped += 1
+                continue
+
+            raw_uri = s3.put_bytes(raw_key, entry.body, content_type=entry.content_type)
             files_repo.upsert_file(
                 document_id=document_id,
                 variant="raw",
@@ -105,6 +136,13 @@ def newadvent_zip_sync_flow() -> dict[str, int]:
             docs.add_link(
                 DocumentLink(
                     document_id=document_id,
+                    link_type="canonical_url",
+                    url=canonical_url,
+                )
+            )
+            docs.add_link(
+                DocumentLink(
+                    document_id=document_id,
                     link_type="raw_object",
                     url=raw_uri,
                 )
@@ -118,7 +156,12 @@ def newadvent_zip_sync_flow() -> dict[str, int]:
                 content_fingerprint=fingerprint,
                 pipeline_version=settings.pipeline_version,
                 discovered_at=datetime.now(UTC),
-                hints={"content_type": entry.content_type, "is_scanned": None},
+                hints={
+                    "content_type": entry.content_type,
+                    "is_scanned": None,
+                    "canonical_url": canonical_url,
+                    "title": title,
+                },
             )
             publish_json_sync(settings.nats_url, settings.nats_subject, event.model_dump_json())
             created += 1

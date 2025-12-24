@@ -41,3 +41,15 @@ resource "prefect_flow" "eval" {
 resource "prefect_flow" "enrich_vectors" {
   name = "enrich_vectors_flow"
 }
+
+resource "prefect_flow" "quality_audit" {
+  name = "quality_audit_flow"
+}
+
+resource "prefect_flow" "reconcile_index" {
+  name = "reconcile_index_flow"
+}
+
+resource "prefect_flow" "metadata_backfill" {
+  name = "metadata_backfill_flow"
+}

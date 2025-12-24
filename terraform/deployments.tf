@@ -219,3 +219,88 @@ resource "prefect_deployment" "enrich_vectors" {
 
   version = "v1"
 }
+
+resource "prefect_deployment" "quality_audit" {
+  name    = "quality-audit"
+  flow_id = prefect_flow.quality_audit.id
+
+  paused = true
+
+  entrypoint = "ol_etl_controlplane.flows.quality_audit_flow.quality_audit_flow"
+
+  work_pool_name  = prefect_work_pool.general.name
+  work_queue_name = "default"
+
+  enforce_parameter_schema = false
+  parameter_openapi_schema = jsonencode({
+    type = "object"
+    properties = {
+      pipeline_version       = { type = "string" }
+      qdrant_collection      = { type = "string" }
+      sources_csv            = { type = "string" }
+      max_docs_per_source    = { type = "integer" }
+      min_extract_chars      = { type = "integer" }
+      max_html_tag_ratio     = { type = "number" }
+      save_report_to_minio   = { type = "boolean" }
+    }
+    additionalProperties = true
+  })
+
+  version = "v1"
+}
+
+resource "prefect_deployment" "reconcile_index" {
+  name    = "reconcile-index"
+  flow_id = prefect_flow.reconcile_index.id
+
+  paused = true
+
+  entrypoint = "ol_etl_controlplane.flows.reconcile_index_flow.reconcile_index_flow"
+
+  work_pool_name  = prefect_work_pool.general.name
+  work_queue_name = "default"
+
+  enforce_parameter_schema = false
+  parameter_openapi_schema = jsonencode({
+    type = "object"
+    properties = {
+      pipeline_version   = { type = "string" }
+      qdrant_collection  = { type = "string" }
+      max_docs           = { type = "integer" }
+      sources_csv        = { type = "string" }
+      dry_run            = { type = "boolean" }
+      delete_dotfiles    = { type = "boolean" }
+      delete_test_docs   = { type = "boolean" }
+      delete_meta_refresh_stubs = { type = "boolean" }
+    }
+    additionalProperties = true
+  })
+
+  version = "v1"
+}
+
+resource "prefect_deployment" "metadata_backfill" {
+  name    = "metadata-backfill"
+  flow_id = prefect_flow.metadata_backfill.id
+
+  # Day-2 operator tool.
+  paused = true
+
+  entrypoint = "ol_etl_controlplane.flows.metadata_backfill_flow.metadata_backfill_flow"
+
+  work_pool_name  = prefect_work_pool.general.name
+  work_queue_name = "default"
+
+  enforce_parameter_schema = false
+  parameter_openapi_schema = jsonencode({
+    type = "object"
+    properties = {
+      max_docs     = { type = "integer" }
+      sources_csv  = { type = "string" }
+      dry_run      = { type = "boolean" }
+    }
+    additionalProperties = true
+  })
+
+  version = "v1"
+}

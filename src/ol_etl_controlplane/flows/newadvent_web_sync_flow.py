@@ -44,12 +44,16 @@ def newadvent_web_sync_flow() -> dict[str, int]:
     settings = load_settings()
     logger = get_run_logger()
 
+    if not settings.nats_url:
+        raise RuntimeError("Missing NATS_URL")
     if not settings.s3_access_key or not settings.s3_secret_key:
         raise RuntimeError("Missing S3_ACCESS_KEY / S3_SECRET_KEY")
 
     vpn_guard = VpnRotationGuard(
         gluetun=GluetunHttpControlClient(
-            GluetunConfig(control_url=settings.gluetun_control_url, api_key=settings.gluetun_api_key)
+            GluetunConfig(
+                control_url=settings.gluetun_control_url, api_key=settings.gluetun_api_key
+            )
         ),
         rotate_every_n_requests=settings.vpn_rotate_every_n_requests,
         require_vpn_for_external=settings.vpn_required,

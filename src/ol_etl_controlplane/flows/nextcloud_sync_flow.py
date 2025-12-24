@@ -35,6 +35,12 @@ def nextcloud_sync_flow() -> dict[str, int]:
     settings = load_settings()
     logger = get_run_logger()
 
+    if not settings.nats_url:
+        raise RuntimeError("Missing NATS_URL")
+    if not settings.nextcloud_webdav_url:
+        raise RuntimeError("Missing NEXTCLOUD_WEBDAV_URL")
+    if not settings.nextcloud_user:
+        raise RuntimeError("Missing NEXTCLOUD_USER")
     if not settings.nextcloud_app_password:
         raise RuntimeError("Missing NEXTCLOUD_APP_PASSWORD")
     if not settings.s3_access_key or not settings.s3_secret_key:
@@ -65,6 +71,8 @@ def nextcloud_sync_flow() -> dict[str, int]:
         source = "nextcloud"
         source_uri = f"nextcloud://{settings.nextcloud_ingest_path.strip('/')}/{f.name}"
         document_id = stable_document_id(source, source_uri)
+        canonical_url = source_uri
+        title = f.name
 
         body = download_webdav_file(
             base_url=settings.nextcloud_webdav_url,
@@ -79,24 +87,30 @@ def nextcloud_sync_flow() -> dict[str, int]:
             files_repo = DocumentFileRepository(conn)
 
             existing = docs.get_document(document_id)
-            if existing and existing.content_fingerprint == fingerprint:
-                skipped += 1
-                continue
-
-            raw_key = f"library/raw/{source}/{document_id}/{f.name}"
-            raw_uri = s3.put_bytes(raw_key, body, content_type=f.content_type)
+            status = existing.status if existing else "discovered"
+            is_scanned = existing.is_scanned if existing else None
 
             docs.upsert_document(
                 Document(
                     document_id=document_id,
                     source=source,
                     source_uri=source_uri,
+                    canonical_url=canonical_url,
+                    title=title,
                     content_fingerprint=fingerprint,
                     content_type=f.content_type,
-                    status="discovered",
+                    is_scanned=is_scanned,
+                    status=status,
                     source_dataset="nextcloud:live",
                 )
             )
+
+            if existing and existing.content_fingerprint == fingerprint:
+                skipped += 1
+                continue
+
+            raw_key = f"library/raw/{source}/{document_id}/{f.name}"
+            raw_uri = s3.put_bytes(raw_key, body, content_type=f.content_type)
             files_repo.upsert_file(
                 document_id=document_id,
                 variant="raw",
@@ -115,6 +129,13 @@ def nextcloud_sync_flow() -> dict[str, int]:
             docs.add_link(
                 DocumentLink(
                     document_id=document_id,
+                    link_type="canonical_url",
+                    url=canonical_url,
+                )
+            )
+            docs.add_link(
+                DocumentLink(
+                    document_id=document_id,
                     link_type="raw_object",
                     url=raw_uri,
                 )
@@ -128,7 +149,12 @@ def nextcloud_sync_flow() -> dict[str, int]:
                 content_fingerprint=fingerprint,
                 pipeline_version=settings.pipeline_version,
                 discovered_at=datetime.now(UTC),
-                hints={"content_type": f.content_type, "is_scanned": None},
+                hints={
+                    "content_type": f.content_type,
+                    "is_scanned": None,
+                    "canonical_url": canonical_url,
+                    "title": title,
+                },
             )
             publish_json_sync(settings.nats_url, settings.nats_subject, event.model_dump_json())
             created += 1

@@ -92,6 +92,8 @@ def eval_flow(
 
     if not settings.s3_access_key or not settings.s3_secret_key:
         raise RuntimeError("Missing S3_ACCESS_KEY / S3_SECRET_KEY")
+    if not settings.embedding_base_url:
+        raise RuntimeError("Missing EMBEDDING_BASE_URL")
 
     dsn = _pg_dsn_from_env(settings)
     apply_migrations(dsn, schema="public")
@@ -166,4 +168,3 @@ def eval_flow(
     uri = s3.put_bytes(key, json.dumps(report, indent=2, sort_keys=True).encode("utf-8"))
     logger.info("Wrote eval report: %s", uri)
     return {"ok": True, "report_uri": uri, "golden_queries": len(queries), "scored": scored}
-

@@ -57,6 +57,8 @@ def index_document_flow(
 
     if not settings.s3_access_key or not settings.s3_secret_key:
         raise RuntimeError("Missing S3_ACCESS_KEY / S3_SECRET_KEY")
+    if not settings.embedding_base_url:
+        raise RuntimeError("Missing EMBEDDING_BASE_URL")
 
     dsn = _pg_dsn_from_env(settings)
     apply_migrations(dsn, schema="public")
@@ -93,7 +95,11 @@ def index_document_flow(
         if doc.status == "needs_review":
             raise RuntimeError("Cannot index needs_review docs; resolve review_queue first.")
 
-        if doc.content_fingerprint and content_fingerprint and doc.content_fingerprint != content_fingerprint:
+        if (
+            doc.content_fingerprint
+            and content_fingerprint
+            and doc.content_fingerprint != content_fingerprint
+        ):
             logger.warning(
                 "Fingerprint mismatch: document_id=%s db=%s param=%s",
                 document_id,
@@ -109,14 +115,18 @@ def index_document_flow(
                 status="complete",
             )
             if not run:
-                raise RuntimeError("Scanned doc has no completed OCR run; run ocr_document_flow first.")
+                raise RuntimeError(
+                    "Scanned doc has no completed OCR run; run ocr_document_flow first."
+                )
             pages = ocr_repo.list_pages(ocr_run_id=run.ocr_run_id)
             if not pages:
                 raise RuntimeError("OCR run has no ocr_pages rows.")
             page_texts: list[tuple[int, str]] = []
             for p in pages:
                 if not p.consensus_uri:
-                    raise RuntimeError(f"OCR page missing consensus_uri: page_number={p.page_number}")
+                    raise RuntimeError(
+                        f"OCR page missing consensus_uri: page_number={p.page_number}"
+                    )
                 txt = s3.get_bytes_uri(p.consensus_uri).decode("utf-8", errors="replace")
                 page_texts.append((p.page_number, txt))
             chunks = chunk_pages(
@@ -181,7 +191,8 @@ def index_document_flow(
                 }
             )
 
-        # ChunkRepository expects Chunk model; avoid importing in controlplane by using dict->dataclass mapping here.
+        # ChunkRepository expects Chunk model; avoid importing in controlplane by using
+        # dict->dataclass mapping here.
         from ol_rag_pipeline_core.models import Chunk  # local import to keep flow import light
 
         chunks_repo.replace_chunks(
@@ -250,7 +261,9 @@ def index_document_flow(
         qdrant.upsert_points(collection=settings.qdrant_collection, points=points)
 
         # Preserve `is_scanned`: it describes the original input, not whether OCR has completed.
-        docs.set_processing_state(document_id=document_id, status="indexed_ok", is_scanned=doc.is_scanned)
+        docs.set_processing_state(
+            document_id=document_id, status="indexed_ok", is_scanned=doc.is_scanned
+        )
         logger.info(
             "Indexed: document_id=%s chunks=%s qdrant_collection=%s",
             document_id,

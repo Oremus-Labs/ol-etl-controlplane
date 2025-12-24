@@ -40,12 +40,16 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
     settings = load_settings()
     logger = get_run_logger()
 
+    if not settings.nats_url:
+        raise RuntimeError("Missing NATS_URL")
     if not settings.s3_access_key or not settings.s3_secret_key:
         raise RuntimeError("Missing S3_ACCESS_KEY / S3_SECRET_KEY")
 
     vpn_guard = VpnRotationGuard(
         gluetun=GluetunHttpControlClient(
-            GluetunConfig(control_url=settings.gluetun_control_url, api_key=settings.gluetun_api_key)
+            GluetunConfig(
+                control_url=settings.gluetun_control_url, api_key=settings.gluetun_api_key
+            )
         ),
         rotate_every_n_requests=settings.vpn_rotate_every_n_requests,
         require_vpn_for_external=settings.vpn_required,
@@ -85,14 +89,22 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
 
             rotated = vpn_guard.before_request(source_uri)
             if rotated:
-                logger.info("Rotated VPN after %s external requests", settings.vpn_rotate_every_n_requests)
+                logger.info(
+                    "Rotated VPN after %s external requests",
+                    settings.vpn_rotate_every_n_requests,
+                )
 
             r: httpx.Response | None = None
             for attempt in range(1, 4):
                 try:
                     r = client.get(source_uri)
                 except httpx.RequestError as e:
-                    logger.warning("Fetch failed (attempt %s/3) url=%s err=%s", attempt, source_uri, repr(e))
+                    logger.warning(
+                        "Fetch failed (attempt %s/3) url=%s err=%s",
+                        attempt,
+                        source_uri,
+                        repr(e),
+                    )
                     vpn_guard.rotate_vpn()
                     continue
 

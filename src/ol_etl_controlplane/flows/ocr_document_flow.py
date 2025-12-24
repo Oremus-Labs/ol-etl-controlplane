@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -8,8 +7,8 @@ from ol_rag_pipeline_core.db import PostgresConfig, connect
 from ol_rag_pipeline_core.migrations.runner import apply_migrations
 from ol_rag_pipeline_core.ocr import (
     LlmServiceClient,
-    OcrEnsembleConfig,
     OcrEngineSpec,
+    OcrEnsembleConfig,
     OcrPageInput,
     OcrQualityGate,
     render_pdf_to_png_pages,
@@ -120,7 +119,11 @@ def ocr_document_flow(
         if existing and existing.status in {"complete", "needs_review"}:
             existing_fp = (existing.metrics_json or {}).get("content_fingerprint")
             if existing_fp and doc.content_fingerprint and existing_fp == doc.content_fingerprint:
-                logger.info("Already OCR'd (idempotent): document_id=%s status=%s", document_id, existing.status)
+                logger.info(
+                    "Already OCR'd (idempotent): document_id=%s status=%s",
+                    document_id,
+                    existing.status,
+                )
                 return {
                     "document_id": document_id,
                     "pipeline_version": pv,
@@ -157,8 +160,16 @@ def ocr_document_flow(
                 max_pages=settings.ocr_pdf_max_pages,
             )
         except Exception as e:  # noqa: BLE001
-            review_repo.ensure_open_item(document_id=document_id, pipeline_version=pv, reason="ocr_render_failed")
-            docs.set_processing_state(document_id=document_id, status="needs_review", is_scanned=True)
+            review_repo.ensure_open_item(
+                document_id=document_id,
+                pipeline_version=pv,
+                reason="ocr_render_failed",
+            )
+            docs.set_processing_state(
+                document_id=document_id,
+                status="needs_review",
+                is_scanned=True,
+            )
             ocr_repo.set_run_status(
                 ocr_run_id=ocr_run_id,
                 status="needs_review",
@@ -170,7 +181,9 @@ def ocr_document_flow(
             )
             raise
 
-        page_inputs = [OcrPageInput(page_number=p.page_number, png_bytes=p.png_bytes) for p in rendered]
+        page_inputs = [
+            OcrPageInput(page_number=p.page_number, png_bytes=p.png_bytes) for p in rendered
+        ]
         ocr_result = run_ocr_ensemble(client=llm, pages=page_inputs, cfg=ensemble_cfg)
 
         base_prefix = f"library/ocr/{pv}/{doc.source}/{document_id}"
@@ -265,10 +278,22 @@ def ocr_document_flow(
         )
 
         if not ocr_result.overall_passed or issues:
-            review_repo.ensure_open_item(document_id=document_id, pipeline_version=pv, reason="ocr_low_quality")
+            review_repo.ensure_open_item(
+                document_id=document_id,
+                pipeline_version=pv,
+                reason="ocr_low_quality",
+            )
             for issue in issues:
-                review_repo.ensure_open_item(document_id=document_id, pipeline_version=pv, reason=issue.code)
-            docs.set_processing_state(document_id=document_id, status="needs_review", is_scanned=True)
+                review_repo.ensure_open_item(
+                    document_id=document_id,
+                    pipeline_version=pv,
+                    reason=issue.code,
+                )
+            docs.set_processing_state(
+                document_id=document_id,
+                status="needs_review",
+                is_scanned=True,
+            )
             ocr_repo.set_run_status(
                 ocr_run_id=ocr_run_id,
                 status="needs_review",
@@ -286,7 +311,10 @@ def ocr_document_flow(
                 "document_id": document_id,
                 "pipeline_version": pv,
                 "status": "needs_review",
-                "issues": [i.code for i in issues] + (["ocr_low_quality"] if not ocr_result.overall_passed else []),
+                "issues": (
+                    [i.code for i in issues]
+                    + (["ocr_low_quality"] if not ocr_result.overall_passed else [])
+                ),
             }
 
         docs.upsert_search_preview(document_id, ocr_result.merged_text[:5000])
@@ -323,4 +351,3 @@ def ocr_document_flow(
             "extracted_uri": extracted_uri,
             "index": index_result,
         }
-
