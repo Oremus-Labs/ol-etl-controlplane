@@ -249,7 +249,8 @@ def index_document_flow(
 
         qdrant.upsert_points(collection=settings.qdrant_collection, points=points)
 
-        docs.set_processing_state(document_id=document_id, status="indexed_ok", is_scanned=False)
+        # Preserve `is_scanned`: it describes the original input, not whether OCR has completed.
+        docs.set_processing_state(document_id=document_id, status="indexed_ok", is_scanned=doc.is_scanned)
         logger.info(
             "Indexed: document_id=%s chunks=%s qdrant_collection=%s",
             document_id,
