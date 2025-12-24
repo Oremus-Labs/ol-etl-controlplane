@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     vatican_sqlite_max_rows: int = Field(default=25, alias="VATICAN_SQLITE_MAX_ROWS")
     newadvent_zip_max_entries: int = Field(default=50, alias="NEWADVENT_ZIP_MAX_ENTRIES")
 
+    extract_min_chars: int = Field(default=200, alias="EXTRACT_MIN_CHARS")
+    extract_min_alpha_ratio: float = Field(default=0.15, alias="EXTRACT_MIN_ALPHA_RATIO")
+
 
 def load_settings() -> Settings:
     return Settings()

@@ -10,9 +10,11 @@ from ol_rag_pipeline_core.repositories.documents import DocumentRepository
 from ol_rag_pipeline_core.repositories.extractions import Extraction, ExtractionRepository
 from ol_rag_pipeline_core.repositories.files import DocumentFileRepository
 from ol_rag_pipeline_core.repositories.ocr import OcrRepository, OcrRun
+from ol_rag_pipeline_core.repositories.review_queue import ReviewQueueRepository
 from ol_rag_pipeline_core.routing import deterministic_ocr_run_id
 from ol_rag_pipeline_core.storage.s3 import S3Client, S3Config, parse_s3_uri
 from ol_rag_pipeline_core.util import sha256_bytes
+from ol_rag_pipeline_core.validation import validate_extracted_text
 from prefect import flow, get_run_logger
 
 from ol_etl_controlplane.config import load_settings
@@ -77,6 +79,7 @@ def process_document_flow(
         files_repo = DocumentFileRepository(conn)
         ext_repo = ExtractionRepository(conn)
         ocr_repo = OcrRepository(conn)
+        review_repo = ReviewQueueRepository(conn)
 
         doc = docs.get_document(document_id)
         if not doc:
@@ -121,11 +124,19 @@ def process_document_flow(
                     document_id=document_id,
                     pipeline_version=pv,
                     engine="ocr-ensemble",
-                    status="queued",
+                    status="ready_for_ocr",
                     metrics_json={
                         "routed_at": datetime.now(UTC).isoformat(),
                         "correlation_id": correlation_id,
                         "source": source or doc.source,
+                        "source_uri": doc.source_uri,
+                        "content_fingerprint": doc.content_fingerprint,
+                        "raw_uri": raw.storage_uri,
+                        "raw_sha256": raw.sha256,
+                        "raw_bytes": raw.bytes_size,
+                        "content_type": effective_ct,
+                        "next_step": "ocr",
+                        "prefect_pool": "pool-ocr",
                         "event": event,
                         "metrics": extracted.metrics,
                     },
@@ -170,7 +181,35 @@ def process_document_flow(
             bytes_size=len(text_bytes),
             mime_type="text/plain",
         )
+
+        issues = validate_extracted_text(
+            text=extracted.text,
+            content_type=effective_ct,
+            min_chars=settings.extract_min_chars,
+            min_alpha_ratio=settings.extract_min_alpha_ratio,
+        )
+
         docs.upsert_search_preview(document_id, extracted.text[:5000])
+        if issues:
+            for issue in issues:
+                review_repo.ensure_open_item(
+                    document_id=document_id,
+                    pipeline_version=pv,
+                    reason=issue.code,
+                )
+            docs.set_processing_state(document_id=document_id, status="review", is_scanned=False)
+            logger.warning(
+                "Extracted but needs review: document_id=%s issues=%s",
+                document_id,
+                [i.code for i in issues],
+            )
+            return {
+                "document_id": document_id,
+                "pipeline_version": pv,
+                "status": "review",
+                "issues": [i.code for i in issues],
+            }
+
         docs.set_processing_state(document_id=document_id, status="extracted", is_scanned=False)
 
         logger.info("Extracted: document_id=%s chars=%s", document_id, len(extracted.text))
