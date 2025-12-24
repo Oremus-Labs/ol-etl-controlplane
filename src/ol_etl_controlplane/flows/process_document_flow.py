@@ -189,7 +189,7 @@ def process_document_flow(
             min_alpha_ratio=settings.extract_min_alpha_ratio,
         )
 
-        docs.upsert_search_preview(document_id, extracted.text[:5000])
+            docs.upsert_search_preview(document_id, extracted.text[:5000])
         if issues:
             for issue in issues:
                 review_repo.ensure_open_item(
@@ -197,7 +197,7 @@ def process_document_flow(
                     pipeline_version=pv,
                     reason=issue.code,
                 )
-            docs.set_processing_state(document_id=document_id, status="review", is_scanned=False)
+            docs.set_processing_state(document_id=document_id, status="needs_review", is_scanned=False)
             logger.warning(
                 "Extracted but needs review: document_id=%s issues=%s",
                 document_id,
@@ -206,7 +206,7 @@ def process_document_flow(
             return {
                 "document_id": document_id,
                 "pipeline_version": pv,
-                "status": "review",
+                "status": "needs_review",
                 "issues": [i.code for i in issues],
             }
 
