@@ -14,7 +14,7 @@ from ol_rag_pipeline_core.models import Document, DocumentLink
 from ol_rag_pipeline_core.nats_publisher import publish_json_sync
 from ol_rag_pipeline_core.repositories.documents import DocumentRepository
 from ol_rag_pipeline_core.repositories.files import DocumentFileRepository
-from ol_rag_pipeline_core.sources.vatican_sqlite import discover_url_rows
+from ol_rag_pipeline_core.sources.vatican_sqlite import discover_document_rows
 from ol_rag_pipeline_core.storage.s3 import S3Client, S3Config
 from ol_rag_pipeline_core.util import sha256_bytes, stable_document_id
 from ol_rag_pipeline_core.vpn import GluetunConfig, GluetunHttpControlClient, VpnRotationGuard
@@ -73,7 +73,7 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
     with tempfile.TemporaryDirectory() as td:
         path = Path(td) / "vatican.db"
         path.write_bytes(db_bytes)
-        rows = discover_url_rows(str(path), limit=settings.vatican_sqlite_max_rows)
+        rows = discover_document_rows(str(path), limit=settings.vatican_sqlite_max_rows)
 
     created = 0
     skipped = 0
@@ -119,6 +119,59 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
                 files_repo = DocumentFileRepository(conn)
 
                 existing = docs.get_document(document_id)
+                if existing:
+                    status = existing.status
+                    is_scanned = existing.is_scanned
+                else:
+                    status = "discovered"
+                    is_scanned = None
+
+                # Always upsert metadata even if the raw content fingerprint did not change.
+                # This lets us backfill title/year/author/categories for already-ingested docs.
+                doc_categories = row.categories or []
+                docs.upsert_document(
+                    Document(
+                        document_id=document_id,
+                        source=source,
+                        source_uri=source_uri,
+                        canonical_url=source_uri,
+                        title=row.title,
+                        author=row.author,
+                        published_year=row.year,
+                        language=row.language,
+                        content_fingerprint=fingerprint,
+                        content_type=content_type,
+                        is_scanned=is_scanned,
+                        status=status,
+                        categories_json={
+                            "categories": doc_categories,
+                            "publisher": row.publisher,
+                            "short_title": row.short_title,
+                            "display_year": row.display_year,
+                            "raw": row.raw_json,
+                            "source_row_id": row.row_id,
+                        },
+                        source_dataset=f"sqlite:{settings.dataset_version}",
+                    )
+                )
+                for c in doc_categories:
+                    docs.add_category(document_id, c)
+                docs.add_link(
+                    DocumentLink(
+                        document_id=document_id,
+                        link_type="source_row_id",
+                        url=f"vatican-sqlite://documents/{row.row_id}",
+                    )
+                )
+                if row.bibliography:
+                    docs.add_link(
+                        DocumentLink(
+                            document_id=document_id,
+                            link_type="bibliography",
+                            url=row.bibliography,
+                        )
+                    )
+
                 if existing and existing.content_fingerprint == fingerprint:
                     skipped += 1
                     continue
@@ -126,17 +179,6 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
                 raw_key = f"library/raw/{source}/{document_id}/{filename}"
                 raw_uri = s3.put_bytes(raw_key, body, content_type=content_type)
 
-                docs.upsert_document(
-                    Document(
-                        document_id=document_id,
-                        source=source,
-                        source_uri=source_uri,
-                        content_fingerprint=fingerprint,
-                        content_type=content_type,
-                        status="discovered",
-                        source_dataset=f"sqlite:{settings.dataset_version}",
-                    )
-                )
                 files_repo.upsert_file(
                     document_id=document_id,
                     variant="raw",
@@ -168,7 +210,16 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
                     content_fingerprint=fingerprint,
                     pipeline_version=settings.pipeline_version,
                     discovered_at=datetime.now(UTC),
-                    hints={"content_type": content_type, "is_scanned": None},
+                    hints={
+                        "content_type": content_type,
+                        "is_scanned": None,
+                        "title": row.title,
+                        "author": row.author,
+                        "published_year": row.year,
+                        "language": row.language,
+                        "categories": row.categories,
+                        "source_row_id": row.row_id,
+                    },
                 )
                 publish_json_sync(settings.nats_url, settings.nats_subject, event.model_dump_json())
                 created += 1
