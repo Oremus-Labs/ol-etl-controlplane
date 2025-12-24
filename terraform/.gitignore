@@ -2,3 +2,6 @@
 *.tfstate
 *.tfstate.*
 *.tfplan
+
+# local plan output
+tfplan
