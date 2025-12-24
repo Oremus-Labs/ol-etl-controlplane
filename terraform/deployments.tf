@@ -83,3 +83,17 @@ resource "prefect_deployment" "newadvent_zip_sync" {
 
   version = "v1"
 }
+
+resource "prefect_deployment" "process_document" {
+  name    = "process-document"
+  flow_id = prefect_flow.process_document.id
+
+  paused = false
+
+  entrypoint = "ol_etl_controlplane.flows.process_document_flow.process_document_flow"
+
+  work_pool_name  = prefect_work_pool.general.name
+  work_queue_name = "default"
+
+  version = "v1"
+}

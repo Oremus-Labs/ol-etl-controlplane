@@ -21,3 +21,7 @@ resource "prefect_flow" "vatican_sqlite_sync" {
 resource "prefect_flow" "newadvent_zip_sync" {
   name = "newadvent_zip_sync_flow"
 }
+
+resource "prefect_flow" "process_document" {
+  name = "process_document_flow"
+}
