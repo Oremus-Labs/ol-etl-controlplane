@@ -50,8 +50,8 @@ class Settings(BaseSettings):
     extract_min_chars: int = Field(default=200, alias="EXTRACT_MIN_CHARS")
     extract_min_alpha_ratio: float = Field(default=0.15, alias="EXTRACT_MIN_ALPHA_RATIO")
 
-    chunk_max_tokens: int = Field(default=300, alias="CHUNK_MAX_TOKENS")
-    chunk_overlap_tokens: int = Field(default=30, alias="CHUNK_OVERLAP_TOKENS")
+    chunk_max_tokens: int = Field(default=500, alias="CHUNK_MAX_TOKENS")
+    chunk_overlap_tokens: int = Field(default=50, alias="CHUNK_OVERLAP_TOKENS")
 
 
 def load_settings() -> Settings:
