@@ -33,8 +33,8 @@ def _pg_dsn_from_env(settings) -> str:  # noqa: ANN001
 
 def _default_seed_urls() -> list[str]:
     return [
-        "https://www.newadvent.org/fathers/010101.htm",
-        "https://www.newadvent.org/fathers/010102.htm",
+        "https://www.newadvent.org/fathers/0101.htm",
+        "https://www.newadvent.org/fathers/0102.htm",
     ]
 
 
