@@ -18,6 +18,7 @@ from ol_rag_pipeline_core.validation import validate_extracted_text
 from prefect import flow, get_run_logger
 
 from ol_etl_controlplane.config import load_settings
+from ol_etl_controlplane.flows.index_document_flow import index_document_flow
 
 
 def _pg_dsn_from_env(settings) -> str:  # noqa: ANN001
@@ -213,10 +214,19 @@ def process_document_flow(
         docs.set_processing_state(document_id=document_id, status="extracted", is_scanned=False)
 
         logger.info("Extracted: document_id=%s chars=%s", document_id, len(extracted.text))
+        index_result = index_document_flow(
+            document_id=document_id,
+            pipeline_version=pv,
+            content_fingerprint=doc.content_fingerprint,
+            source=source or doc.source,
+            event_id=event_id,
+            event=event,
+        )
         return {
             "document_id": document_id,
             "pipeline_version": pv,
-            "status": "extracted",
+            "status": index_result.get("status", "extracted"),
             "extracted_chars": len(extracted.text),
             "extracted_sha256": sha256_bytes(text_bytes),
+            "index": index_result,
         }

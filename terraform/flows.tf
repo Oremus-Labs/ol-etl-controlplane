@@ -25,3 +25,7 @@ resource "prefect_flow" "newadvent_zip_sync" {
 resource "prefect_flow" "process_document" {
   name = "process_document_flow"
 }
+
+resource "prefect_flow" "index_document" {
+  name = "index_document_flow"
+}
