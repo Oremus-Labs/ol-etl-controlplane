@@ -98,10 +98,13 @@ def process_document_flow(
             pipeline_version=pv,
             extractor="process_document",
         )
+        existing_fp = (existing_ext.metrics_json or {}).get("content_fingerprint") if existing_ext else None
         if (
             existing_ext
+            and doc.status != "discovered"
             and doc.content_fingerprint
-            and doc.content_fingerprint == (content_fingerprint or "")
+            and existing_fp
+            and existing_fp == doc.content_fingerprint
         ):
             logger.info("Already processed (idempotent): document_id=%s", document_id)
             return {
@@ -167,6 +170,7 @@ def process_document_flow(
                 extracted_uri=extracted_uri,
                 metrics_json={
                     "correlation_id": correlation_id,
+                    "content_fingerprint": doc.content_fingerprint,
                     "content_type": effective_ct,
                     "extractor": extracted.extractor,
                     **extracted.metrics,
