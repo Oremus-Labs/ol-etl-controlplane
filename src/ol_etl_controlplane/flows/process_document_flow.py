@@ -190,7 +190,7 @@ def process_document_flow(
             min_alpha_ratio=settings.extract_min_alpha_ratio,
         )
 
-            docs.upsert_search_preview(document_id, extracted.text[:5000])
+        docs.upsert_search_preview(document_id, extracted.text[:5000])
         if issues:
             for issue in issues:
                 review_repo.ensure_open_item(
