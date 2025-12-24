@@ -16,6 +16,50 @@ from prefect import flow, get_run_logger
 from ol_etl_controlplane.config import load_settings
 
 _HTML_TAG_RE = re.compile(r"<[^>]{2,}>")
+_VATICAN_LANG_NAMES = {
+    "italiano",
+    "français",
+    "english",
+    "português",
+    "español",
+    "deutsch",
+    "latine",
+    "العربيّة",
+    "中文",
+}
+_VATICAN_NAV_PHRASES = {
+    "la santa sede",
+    "the holy see",
+    "magisterium",
+    "calendario",
+    "celebrazioni liturgiche",
+    "biglietti udienze e celebrazioni pontificie",
+    "sommi pontefici",
+    "collegio cardinalizio",
+    "curia romana e altre organizzazioni",
+    "sinodo",
+    "sala stampa",
+    "vatican news - radio vaticana",
+    "l'osservatore romano",
+}
+
+
+def _looks_like_vatican_nav(head_lines: list[str]) -> bool:
+    hits = 0
+    for line in head_lines[:60]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        low = stripped.lower()
+        if "la santa sede" in low:
+            hits += 3
+        if low in _VATICAN_LANG_NAMES:
+            hits += 1
+        if low in _VATICAN_NAV_PHRASES:
+            hits += 1
+        if "vatican" in low and "news" in low:
+            hits += 1
+    return hits >= 5
 
 
 def _alpha_ratio(s: str) -> float:
@@ -234,6 +278,7 @@ def quality_audit_flow(
                 extracted_stats: dict[str, Any] | None = None
                 if extracted:
                     text = s3.get_bytes_uri(extracted.storage_uri).decode("utf-8", errors="replace")
+                    head_lines = text.splitlines()[:120]
                     html_tags = len(_HTML_TAG_RE.findall(text))
                     extracted_stats = {
                         "chars": len(text),
@@ -258,6 +303,13 @@ def quality_audit_flow(
                                 "document_id": document_id,
                                 "html_tag_ratio": extracted_stats["html_tag_ratio"],
                                 "max_html_tag_ratio": max_html_tag_ratio,
+                            }
+                        )
+                    if doc.source == "vatican_sqlite" and _looks_like_vatican_nav(head_lines):
+                        issues.append(
+                            {
+                                "type": "extracted_contains_nav_boilerplate",
+                                "document_id": document_id,
                             }
                         )
 

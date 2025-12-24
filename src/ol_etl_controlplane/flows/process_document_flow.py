@@ -47,6 +47,7 @@ def process_document_flow(
     source: str | None = None,
     event_id: str | None = None,
     event: dict | None = None,
+    force: bool = False,
 ) -> dict[str, object]:
     """
     Phase 4:
@@ -108,6 +109,7 @@ def process_document_flow(
             and doc.content_fingerprint
             and existing_fp
             and existing_fp == doc.content_fingerprint
+            and not force
         ):
             logger.info("Already processed (idempotent): document_id=%s", document_id)
             return {
@@ -116,6 +118,12 @@ def process_document_flow(
                 "status": doc.status,
                 "idempotent": True,
             }
+        if force:
+            logger.warning(
+                "Force reprocess enabled: document_id=%s prev_status=%s",
+                document_id,
+                prev_status,
+            )
 
         raw_bytes = s3.get_bytes_uri(raw.storage_uri)
         extracted = extract_text(data=raw_bytes, content_type=effective_ct, filename=filename)
