@@ -52,6 +52,8 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
         ensure_timeout_s=settings.vpn_ensure_timeout_s,
         rotate_cooldown_s=settings.vpn_rotate_cooldown_s,
     )
+    if settings.vpn_required:
+        vpn_guard.ensure_vpn_running()
 
     dsn = _pg_dsn_from_env(settings)
     apply_migrations(dsn, schema="public")
@@ -85,8 +87,27 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
             if rotated:
                 logger.info("Rotated VPN after %s external requests", settings.vpn_rotate_every_n_requests)
 
-            r = client.get(source_uri)
-            if r.status_code >= 400:
+            r: httpx.Response | None = None
+            for attempt in range(1, 4):
+                try:
+                    r = client.get(source_uri)
+                except httpx.RequestError as e:
+                    logger.warning("Fetch failed (attempt %s/3) url=%s err=%s", attempt, source_uri, repr(e))
+                    vpn_guard.rotate_vpn()
+                    continue
+
+                if r.status_code in {403, 429, 500, 502, 503, 504}:
+                    logger.warning(
+                        "Fetch got %s (attempt %s/3) url=%s; rotating VPN",
+                        r.status_code,
+                        attempt,
+                        source_uri,
+                    )
+                    vpn_guard.rotate_vpn()
+                    continue
+                break
+
+            if not r or r.status_code >= 400:
                 continue
             body = r.content
             content_type = r.headers.get("content-type")
