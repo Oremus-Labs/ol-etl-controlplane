@@ -37,3 +37,7 @@ resource "prefect_flow" "ocr_document" {
 resource "prefect_flow" "eval" {
   name = "eval_flow"
 }
+
+resource "prefect_flow" "enrich_vectors" {
+  name = "enrich_vectors_flow"
+}

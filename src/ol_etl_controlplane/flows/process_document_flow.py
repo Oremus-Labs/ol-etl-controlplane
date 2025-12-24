@@ -85,6 +85,7 @@ def process_document_flow(
         doc = docs.get_document(document_id)
         if not doc:
             raise RuntimeError(f"Document not found: {document_id}")
+        prev_status = doc.status
 
         raw = files_repo.get_file(document_id=document_id, variant="raw")
         if not raw:
@@ -98,10 +99,12 @@ def process_document_flow(
             pipeline_version=pv,
             extractor="process_document",
         )
-        existing_fp = (existing_ext.metrics_json or {}).get("content_fingerprint") if existing_ext else None
+        existing_fp = (
+            (existing_ext.metrics_json or {}).get("content_fingerprint") if existing_ext else None
+        )
         if (
             existing_ext
-            and doc.status != "discovered"
+            and doc.status in {"indexed_ok", "needs_review", "needs_ocr"}
             and doc.content_fingerprint
             and existing_fp
             and existing_fp == doc.content_fingerprint
@@ -202,7 +205,11 @@ def process_document_flow(
                     pipeline_version=pv,
                     reason=issue.code,
                 )
-            docs.set_processing_state(document_id=document_id, status="needs_review", is_scanned=False)
+            docs.set_processing_state(
+                document_id=document_id,
+                status="needs_review",
+                is_scanned=False,
+            )
             logger.warning(
                 "Extracted but needs review: document_id=%s issues=%s",
                 document_id,
@@ -215,7 +222,10 @@ def process_document_flow(
                 "issues": [i.code for i in issues],
             }
 
-        docs.set_processing_state(document_id=document_id, status="extracted", is_scanned=False)
+        # Avoid downgrading a previously-indexed document on reruns. If indexing fails later,
+        # keep the last known-good `indexed_ok` state instead of regressing to `extracted`.
+        if prev_status != "indexed_ok":
+            docs.set_processing_state(document_id=document_id, status="extracted", is_scanned=False)
 
         logger.info("Extracted: document_id=%s chars=%s", document_id, len(extracted.text))
         index_result = index_document_flow(

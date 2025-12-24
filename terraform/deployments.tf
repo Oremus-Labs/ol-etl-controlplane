@@ -188,3 +188,34 @@ resource "prefect_deployment" "eval" {
 
   version = "v1"
 }
+
+resource "prefect_deployment" "enrich_vectors" {
+  name    = "enrich-vectors"
+  flow_id = prefect_flow.enrich_vectors.id
+
+  # Day-2 job: run manually or via an explicit schedule later.
+  paused = true
+
+  entrypoint = "ol_etl_controlplane.flows.enrich_vectors_flow.enrich_vectors_flow"
+
+  work_pool_name  = prefect_work_pool.general.name
+  work_queue_name = "default"
+
+  enforce_parameter_schema = false
+  parameter_openapi_schema = jsonencode({
+    type = "object"
+    properties = {
+      pipeline_version       = { type = "string" }
+      enrichment_version     = { type = "string" }
+      model                  = { type = "string" }
+      confidence_threshold   = { type = "number" }
+      source                 = { type = "string" }
+      limit_chunks           = { type = "integer" }
+      include_rejected       = { type = "boolean" }
+      dry_run                = { type = "boolean" }
+    }
+    additionalProperties = true
+  })
+
+  version = "v1"
+}
