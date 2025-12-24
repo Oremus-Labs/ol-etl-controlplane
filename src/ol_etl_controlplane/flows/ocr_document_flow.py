@@ -20,11 +20,12 @@ from ol_rag_pipeline_core.repositories.files import DocumentFileRepository
 from ol_rag_pipeline_core.repositories.ocr import OcrPage, OcrRepository, OcrRun
 from ol_rag_pipeline_core.repositories.review_queue import ReviewQueueRepository
 from ol_rag_pipeline_core.routing import deterministic_ocr_run_id
-from ol_rag_pipeline_core.storage.s3 import S3Client, S3Config
+from ol_rag_pipeline_core.storage.s3 import S3Client, S3Config, parse_s3_uri
 from ol_rag_pipeline_core.util import sha256_bytes
 from ol_rag_pipeline_core.validation import validate_extracted_text
 from prefect import flow, get_run_logger
 
+from ol_etl_controlplane.calibre import export_calibre_bundle
 from ol_etl_controlplane.config import load_settings
 from ol_etl_controlplane.flows.index_document_flow import index_document_flow
 
@@ -46,6 +47,12 @@ def _parse_engines(csv: str) -> list[OcrEngineSpec]:
     if not engines:
         raise ValueError("OCR_ENGINES is empty")
     return [OcrEngineSpec(engine=e) for e in engines]
+
+
+def _filename_from_s3_uri(uri: str) -> str | None:
+    _, key = parse_s3_uri(uri)
+    name = key.rstrip("/").split("/")[-1]
+    return name or None
 
 
 @flow(name="ocr_document_flow")
@@ -267,6 +274,27 @@ def ocr_document_flow(
                     "overall_passed": ocr_result.overall_passed,
                 },
             )
+        )
+
+        export_calibre_bundle(
+            enabled=settings.calibre_export_enabled,
+            logger=logger,
+            docs=docs,
+            files_repo=files_repo,
+            document_id=document_id,
+            pipeline_version=pv,
+            doc=doc,
+            source_uri=doc.source_uri,
+            raw_bytes=raw_bytes,
+            raw_content_type=doc.content_type or raw.mime_type,
+            raw_filename=_filename_from_s3_uri(raw.storage_uri),
+            extracted_text=ocr_result.merged_text,
+            categories=docs.list_categories(document_id),
+            s3_endpoint=settings.s3_endpoint,
+            s3_access_key=settings.s3_access_key or "",
+            s3_secret_key=settings.s3_secret_key or "",
+            calibre_bucket=settings.calibre_s3_bucket,
+            calibre_prefix=settings.calibre_s3_prefix,
         )
 
         # Validate merged text (same heuristics as Phase 4) + page gate.

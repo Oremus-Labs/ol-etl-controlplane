@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     s3_access_key: str | None = Field(default=None, alias="S3_ACCESS_KEY")
     s3_secret_key: str | None = Field(default=None, alias="S3_SECRET_KEY")
 
+    calibre_export_enabled: bool = Field(default=True, alias="CALIBRE_EXPORT_ENABLED")
+    calibre_s3_bucket: str = Field(default="calibre-inbox", alias="CALIBRE_S3_BUCKET")
+    calibre_s3_prefix: str = Field(default="etl", alias="CALIBRE_S3_PREFIX")
+
     nextcloud_webdav_url: str | None = Field(default=None, alias="NEXTCLOUD_WEBDAV_URL")
     nextcloud_user: str | None = Field(default=None, alias="NEXTCLOUD_USER")
     nextcloud_app_password: str | None = Field(default=None, alias="NEXTCLOUD_APP_PASSWORD")

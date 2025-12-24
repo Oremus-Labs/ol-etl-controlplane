@@ -18,6 +18,7 @@ from ol_rag_pipeline_core.validation import validate_extracted_text
 from prefect import flow, get_run_logger
 
 from ol_etl_controlplane.config import load_settings
+from ol_etl_controlplane.calibre import export_calibre_bundle
 from ol_etl_controlplane.flows.index_document_flow import index_document_flow
 
 
@@ -94,6 +95,7 @@ def process_document_flow(
 
         filename = _filename_from_s3_uri(raw.storage_uri)
         effective_ct = doc.content_type or raw.mime_type
+        categories = docs.list_categories(document_id)
 
         existing_ext = ext_repo.get_extraction(
             document_id=document_id,
@@ -129,6 +131,26 @@ def process_document_flow(
         extracted = extract_text(data=raw_bytes, content_type=effective_ct, filename=filename)
 
         if extracted.is_scanned:
+            export_calibre_bundle(
+                enabled=settings.calibre_export_enabled,
+                logger=logger,
+                docs=docs,
+                files_repo=files_repo,
+                document_id=document_id,
+                pipeline_version=pv,
+                doc=doc,
+                source_uri=doc.source_uri,
+                raw_bytes=raw_bytes,
+                raw_content_type=effective_ct,
+                raw_filename=filename,
+                extracted_text="(OCR pending)\n",
+                categories=categories,
+                s3_endpoint=settings.s3_endpoint,
+                s3_access_key=settings.s3_access_key or "",
+                s3_secret_key=settings.s3_secret_key or "",
+                calibre_bucket=settings.calibre_s3_bucket,
+                calibre_prefix=settings.calibre_s3_prefix,
+            )
             docs.set_processing_state(document_id=document_id, status="needs_ocr", is_scanned=True)
             ocr_repo.upsert_ocr_run(
                 OcrRun(
@@ -196,6 +218,27 @@ def process_document_flow(
             sha256=sha256_bytes(text_bytes),
             bytes_size=len(text_bytes),
             mime_type="text/plain",
+        )
+
+        export_calibre_bundle(
+            enabled=settings.calibre_export_enabled,
+            logger=logger,
+            docs=docs,
+            files_repo=files_repo,
+            document_id=document_id,
+            pipeline_version=pv,
+            doc=doc,
+            source_uri=doc.source_uri,
+            raw_bytes=raw_bytes,
+            raw_content_type=effective_ct,
+            raw_filename=filename,
+            extracted_text=extracted.text,
+            categories=categories,
+            s3_endpoint=settings.s3_endpoint,
+            s3_access_key=settings.s3_access_key or "",
+            s3_secret_key=settings.s3_secret_key or "",
+            calibre_bucket=settings.calibre_s3_bucket,
+            calibre_prefix=settings.calibre_s3_prefix,
         )
 
         issues = validate_extracted_text(
