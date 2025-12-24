@@ -25,6 +25,8 @@ class Settings(BaseSettings):
 
     embedding_base_url: str = Field(alias="EMBEDDING_BASE_URL")
     embedding_api_key: str | None = Field(default=None, alias="EMBEDDING_API_KEY")
+    embedding_max_batch_texts: int = Field(default=16, alias="EMBEDDING_MAX_BATCH_TEXTS")
+    embedding_max_batch_chars: int = Field(default=12000, alias="EMBEDDING_MAX_BATCH_CHARS")
 
     s3_endpoint: str = Field(alias="S3_ENDPOINT")
     s3_bucket: str = Field(alias="S3_BUCKET")
@@ -47,6 +49,9 @@ class Settings(BaseSettings):
 
     extract_min_chars: int = Field(default=200, alias="EXTRACT_MIN_CHARS")
     extract_min_alpha_ratio: float = Field(default=0.15, alias="EXTRACT_MIN_ALPHA_RATIO")
+
+    chunk_max_tokens: int = Field(default=300, alias="CHUNK_MAX_TOKENS")
+    chunk_overlap_tokens: int = Field(default=30, alias="CHUNK_OVERLAP_TOKENS")
 
 
 def load_settings() -> Settings:

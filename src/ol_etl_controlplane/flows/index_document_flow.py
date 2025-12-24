@@ -72,6 +72,8 @@ def index_document_flow(
     embedder = EmbeddingClient(
         base_url=settings.embedding_base_url,
         api_key=settings.embedding_api_key,
+        max_batch_texts=settings.embedding_max_batch_texts,
+        max_batch_chars=settings.embedding_max_batch_chars,
     )
     qdrant = QdrantClient(
         base_url=settings.qdrant_url,
@@ -108,7 +110,11 @@ def index_document_flow(
         extracted_bytes = s3.get_bytes_uri(extracted_file.storage_uri)
         extracted_text = extracted_bytes.decode("utf-8", errors="replace")
 
-        chunks = chunk_text(text=extracted_text, max_tokens=300, overlap_tokens=30)
+        chunks = chunk_text(
+            text=extracted_text,
+            max_tokens=settings.chunk_max_tokens,
+            overlap_tokens=settings.chunk_overlap_tokens,
+        )
         if not chunks:
             raise RuntimeError("No chunks produced from extracted text.")
 
