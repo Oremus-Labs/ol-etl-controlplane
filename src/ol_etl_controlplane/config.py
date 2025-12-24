@@ -73,6 +73,22 @@ class Settings(BaseSettings):
         description="JSON list of eval queries with optional expected document ids; written to MinIO report.",
     )
 
+    # VPN safety/rotation (for high-volume external crawls)
+    gluetun_control_url: str = Field(default="http://127.0.0.1:8000", alias="GLUETUN_CONTROL_URL")
+    gluetun_api_key: str | None = Field(default=None, alias="GLUETUN_API_KEY")
+    vpn_required: bool = Field(
+        default=True,
+        alias="VPN_REQUIRED",
+        description="If true, external HTTP(S) fetches require an active VPN (Gluetun) or they fail fast.",
+    )
+    vpn_rotate_every_n_requests: int = Field(
+        default=10,
+        alias="VPN_ROTATE_EVERY_N_REQUESTS",
+        description="Rotate the VPN connection every N external HTTP(S) requests.",
+    )
+    vpn_ensure_timeout_s: float = Field(default=90.0, alias="VPN_ENSURE_TIMEOUT_S")
+    vpn_rotate_cooldown_s: float = Field(default=2.0, alias="VPN_ROTATE_COOLDOWN_S")
+
 
 def load_settings() -> Settings:
     return Settings()

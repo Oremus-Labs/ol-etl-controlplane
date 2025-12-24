@@ -17,6 +17,7 @@ from ol_rag_pipeline_core.repositories.files import DocumentFileRepository
 from ol_rag_pipeline_core.sources.vatican_sqlite import discover_url_rows
 from ol_rag_pipeline_core.storage.s3 import S3Client, S3Config
 from ol_rag_pipeline_core.util import sha256_bytes, stable_document_id
+from ol_rag_pipeline_core.vpn import GluetunConfig, GluetunHttpControlClient, VpnRotationGuard
 from prefect import flow, get_run_logger
 
 from ol_etl_controlplane.config import load_settings
@@ -41,6 +42,16 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
 
     if not settings.s3_access_key or not settings.s3_secret_key:
         raise RuntimeError("Missing S3_ACCESS_KEY / S3_SECRET_KEY")
+
+    vpn_guard = VpnRotationGuard(
+        gluetun=GluetunHttpControlClient(
+            GluetunConfig(control_url=settings.gluetun_control_url, api_key=settings.gluetun_api_key)
+        ),
+        rotate_every_n_requests=settings.vpn_rotate_every_n_requests,
+        require_vpn_for_external=settings.vpn_required,
+        ensure_timeout_s=settings.vpn_ensure_timeout_s,
+        rotate_cooldown_s=settings.vpn_rotate_cooldown_s,
+    )
 
     dsn = _pg_dsn_from_env(settings)
     apply_migrations(dsn, schema="public")
@@ -69,6 +80,10 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
             source = "vatican_sqlite"
             source_uri = row.url
             document_id = stable_document_id(source, source_uri)
+
+            rotated = vpn_guard.before_request(source_uri)
+            if rotated:
+                logger.info("Rotated VPN after %s external requests", settings.vpn_rotate_every_n_requests)
 
             r = client.get(source_uri)
             if r.status_code >= 400:
