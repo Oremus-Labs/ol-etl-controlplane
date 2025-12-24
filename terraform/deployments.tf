@@ -95,6 +95,23 @@ resource "prefect_deployment" "process_document" {
   work_pool_name  = prefect_work_pool.general.name
   work_queue_name = "default"
 
+  # Prefect Terraform provider cannot introspect Python signatures to build parameter schemas.
+  # Define a minimal schema so CLI/API callers can pass parameters without Prefect rejecting them.
+  enforce_parameter_schema = false
+  parameter_openapi_schema = jsonencode({
+    type = "object"
+    properties = {
+      document_id         = { type = "string" }
+      pipeline_version    = { type = "string" }
+      content_fingerprint = { type = "string" }
+      source              = { type = "string" }
+      event_id            = { type = "string" }
+      event               = { type = "object" }
+    }
+    required             = ["document_id"]
+    additionalProperties = true
+  })
+
   version = "v1"
 }
 
@@ -109,6 +126,22 @@ resource "prefect_deployment" "index_document" {
   work_pool_name  = prefect_work_pool.general.name
   work_queue_name = "default"
 
+  # See note above.
+  enforce_parameter_schema = false
+  parameter_openapi_schema = jsonencode({
+    type = "object"
+    properties = {
+      document_id         = { type = "string" }
+      pipeline_version    = { type = "string" }
+      content_fingerprint = { type = "string" }
+      source              = { type = "string" }
+      event_id            = { type = "string" }
+      event               = { type = "object" }
+    }
+    required             = ["document_id"]
+    additionalProperties = true
+  })
+
   version = "v1"
 }
 
@@ -122,6 +155,22 @@ resource "prefect_deployment" "ocr_document" {
 
   work_pool_name  = prefect_work_pool.ocr.name
   work_queue_name = "default"
+
+  # See note above.
+  enforce_parameter_schema = false
+  parameter_openapi_schema = jsonencode({
+    type = "object"
+    properties = {
+      document_id         = { type = "string" }
+      pipeline_version    = { type = "string" }
+      content_fingerprint = { type = "string" }
+      source              = { type = "string" }
+      event_id            = { type = "string" }
+      event               = { type = "object" }
+    }
+    required             = ["document_id"]
+    additionalProperties = true
+  })
 
   version = "v1"
 }
