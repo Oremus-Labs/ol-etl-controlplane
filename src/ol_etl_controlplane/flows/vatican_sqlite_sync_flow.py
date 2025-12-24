@@ -128,7 +128,7 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
 
                 # Always upsert metadata even if the raw content fingerprint did not change.
                 # This lets us backfill title/year/author/categories for already-ingested docs.
-                doc_categories = row.categories or []
+                doc_categories = [c for c in (row.categories or []) if c]
                 docs.upsert_document(
                     Document(
                         document_id=document_id,
