@@ -53,6 +53,26 @@ class Settings(BaseSettings):
     chunk_max_tokens: int = Field(default=500, alias="CHUNK_MAX_TOKENS")
     chunk_overlap_tokens: int = Field(default=50, alias="CHUNK_OVERLAP_TOKENS")
 
+    llm_service_url: str = Field(default="http://10.10.10.8:8090", alias="LLM_SERVICE_URL")
+    llm_service_api_key: str | None = Field(default=None, alias="LLM_SERVICE_API_KEY")
+    ocr_engines: str = Field(
+        default="mineru,monkeyocr_pro,qwen3_vl",
+        alias="OCR_ENGINES",
+        description="Comma-separated ol-llm-service OCR engine names (e.g. mineru,monkeyocr_pro,qwen3_vl).",
+    )
+    ocr_pdf_dpi: int = Field(default=200, alias="OCR_PDF_DPI")
+    ocr_pdf_max_pages: int | None = Field(default=None, alias="OCR_PDF_MAX_PAGES")
+
+    ocr_min_chars_per_page: int = Field(default=40, alias="OCR_MIN_CHARS_PER_PAGE")
+    ocr_min_alpha_ratio: float = Field(default=0.10, alias="OCR_MIN_ALPHA_RATIO")
+    ocr_min_printable_ratio: float = Field(default=0.85, alias="OCR_MIN_PRINTABLE_RATIO")
+
+    eval_queries_json: str | None = Field(
+        default=None,
+        alias="EVAL_QUERIES_JSON",
+        description="JSON list of eval queries with optional expected document ids; written to MinIO report.",
+    )
+
 
 def load_settings() -> Settings:
     return Settings()

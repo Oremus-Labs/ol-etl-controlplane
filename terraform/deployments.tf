@@ -111,3 +111,31 @@ resource "prefect_deployment" "index_document" {
 
   version = "v1"
 }
+
+resource "prefect_deployment" "ocr_document" {
+  name    = "ocr-document"
+  flow_id = prefect_flow.ocr_document.id
+
+  paused = false
+
+  entrypoint = "ol_etl_controlplane.flows.ocr_document_flow.ocr_document_flow"
+
+  work_pool_name  = prefect_work_pool.ocr.name
+  work_queue_name = "default"
+
+  version = "v1"
+}
+
+resource "prefect_deployment" "eval" {
+  name    = "eval-nightly"
+  flow_id = prefect_flow.eval.id
+
+  paused = false
+
+  entrypoint = "ol_etl_controlplane.flows.eval_flow.eval_flow"
+
+  work_pool_name  = prefect_work_pool.general.name
+  work_queue_name = "default"
+
+  version = "v1"
+}

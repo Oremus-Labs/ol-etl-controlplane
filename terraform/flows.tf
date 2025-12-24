@@ -29,3 +29,11 @@ resource "prefect_flow" "process_document" {
 resource "prefect_flow" "index_document" {
   name = "index_document_flow"
 }
+
+resource "prefect_flow" "ocr_document" {
+  name = "ocr_document_flow"
+}
+
+resource "prefect_flow" "eval" {
+  name = "eval_flow"
+}

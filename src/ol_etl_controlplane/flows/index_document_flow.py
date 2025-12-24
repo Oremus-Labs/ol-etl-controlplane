@@ -4,7 +4,7 @@ import json
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from ol_rag_pipeline_core.chunking import chunk_text
+from ol_rag_pipeline_core.chunking import chunk_pages, chunk_text
 from ol_rag_pipeline_core.db import PostgresConfig, connect
 from ol_rag_pipeline_core.embedding import EmbeddingClient
 from ol_rag_pipeline_core.migrations.runner import apply_migrations
@@ -12,6 +12,7 @@ from ol_rag_pipeline_core.qdrant import QdrantClient, deterministic_point_id
 from ol_rag_pipeline_core.repositories.chunks import ChunkRepository
 from ol_rag_pipeline_core.repositories.documents import DocumentRepository
 from ol_rag_pipeline_core.repositories.files import DocumentFileRepository
+from ol_rag_pipeline_core.repositories.ocr import OcrRepository
 from ol_rag_pipeline_core.storage.s3 import S3Client, S3Config
 from ol_rag_pipeline_core.util import sha256_bytes
 from prefect import flow, get_run_logger
@@ -89,9 +90,6 @@ def index_document_flow(
         if not doc:
             raise RuntimeError(f"Document not found: {document_id}")
 
-        if doc.is_scanned:
-            raise RuntimeError("Cannot index scanned docs before OCR consensus text exists (Phase 6).")
-
         if doc.status == "needs_review":
             raise RuntimeError("Cannot index needs_review docs; resolve review_queue first.")
 
@@ -103,18 +101,42 @@ def index_document_flow(
                 content_fingerprint,
             )
 
-        extracted_file = files_repo.get_file(document_id=document_id, variant="extracted_text")
-        if not extracted_file:
-            raise RuntimeError(f"Extracted text file not found for document: {document_id}")
+        if doc.is_scanned:
+            ocr_repo = OcrRepository(conn)
+            run = ocr_repo.get_latest_run_for_document(
+                document_id=document_id,
+                pipeline_version=pv,
+                status="complete",
+            )
+            if not run:
+                raise RuntimeError("Scanned doc has no completed OCR run; run ocr_document_flow first.")
+            pages = ocr_repo.list_pages(ocr_run_id=run.ocr_run_id)
+            if not pages:
+                raise RuntimeError("OCR run has no ocr_pages rows.")
+            page_texts: list[tuple[int, str]] = []
+            for p in pages:
+                if not p.consensus_uri:
+                    raise RuntimeError(f"OCR page missing consensus_uri: page_number={p.page_number}")
+                txt = s3.get_bytes_uri(p.consensus_uri).decode("utf-8", errors="replace")
+                page_texts.append((p.page_number, txt))
+            chunks = chunk_pages(
+                pages=page_texts,
+                max_tokens=settings.chunk_max_tokens,
+                overlap_tokens=settings.chunk_overlap_tokens,
+            )
+        else:
+            extracted_file = files_repo.get_file(document_id=document_id, variant="extracted_text")
+            if not extracted_file:
+                raise RuntimeError(f"Extracted text file not found for document: {document_id}")
 
-        extracted_bytes = s3.get_bytes_uri(extracted_file.storage_uri)
-        extracted_text = extracted_bytes.decode("utf-8", errors="replace")
+            extracted_bytes = s3.get_bytes_uri(extracted_file.storage_uri)
+            extracted_text = extracted_bytes.decode("utf-8", errors="replace")
 
-        chunks = chunk_text(
-            text=extracted_text,
-            max_tokens=settings.chunk_max_tokens,
-            overlap_tokens=settings.chunk_overlap_tokens,
-        )
+            chunks = chunk_text(
+                text=extracted_text,
+                max_tokens=settings.chunk_max_tokens,
+                overlap_tokens=settings.chunk_overlap_tokens,
+            )
         if not chunks:
             raise RuntimeError("No chunks produced from extracted text.")
 
