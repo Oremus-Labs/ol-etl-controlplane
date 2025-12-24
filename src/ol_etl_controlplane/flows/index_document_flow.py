@@ -108,7 +108,7 @@ def index_document_flow(
         extracted_bytes = s3.get_bytes_uri(extracted_file.storage_uri)
         extracted_text = extracted_bytes.decode("utf-8", errors="replace")
 
-        chunks = chunk_text(text=extracted_text, max_tokens=500, overlap_tokens=50)
+        chunks = chunk_text(text=extracted_text, max_tokens=300, overlap_tokens=30)
         if not chunks:
             raise RuntimeError("No chunks produced from extracted text.")
 
@@ -236,4 +236,3 @@ def index_document_flow(
             "vector_size": vector_size,
             "qdrant_collection": settings.qdrant_collection,
         }
-
