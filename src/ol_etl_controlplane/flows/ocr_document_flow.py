@@ -225,6 +225,7 @@ def ocr_document_flow(
                 "page_png_uri": png_uri,
                 "engine_text_uris": engine_uris,
                 "quality_by_engine": page.quality_by_engine,
+                "errors_by_engine": page.errors_by_engine,
                 "consensus_meta": page.consensus_meta,
             }
 
