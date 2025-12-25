@@ -149,6 +149,7 @@ def enrich_vectors_flow(
     limit_chunks: int = 200,
     include_rejected: bool = False,
     dry_run: bool = False,
+    llm_max_tokens: int = 1024,
 ) -> dict[str, object]:
     """
     Day-2 enrichment:
@@ -309,7 +310,7 @@ def enrich_vectors_flow(
                     content = llm.chat_completion(
                         model=model,
                         messages=messages,
-                        max_tokens=512,
+                        max_tokens=llm_max_tokens,
                         temperature=0.0,
                     )
                     payload = _parse_first_json_object(content)
