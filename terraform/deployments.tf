@@ -67,6 +67,46 @@ resource "prefect_deployment" "vatican_sqlite_sync" {
   work_pool_name  = prefect_work_pool.general.name
   work_queue_name = "default"
 
+  enforce_parameter_schema = false
+  parameter_openapi_schema = jsonencode({
+    type = "object"
+    properties = {
+      partition_index  = { type = "integer" }
+      num_partitions   = { type = "integer" }
+      allow_single_run = { type = "boolean" }
+      max_rows         = { type = "integer" }
+    }
+    additionalProperties = true
+  })
+
+  version = "v2"
+}
+
+resource "prefect_deployment" "vatican_sqlite_enqueue" {
+  name    = "vatican-sqlite-enqueue"
+  flow_id = prefect_flow.vatican_sqlite_enqueue.id
+
+  # Day-1 bulk ingest tool: run manually when you want to backfill the Vatican dataset.
+  paused = false
+
+  entrypoint = "ol_etl_controlplane.flows.vatican_sqlite_enqueue_flow.vatican_sqlite_enqueue_flow"
+
+  work_pool_name  = prefect_work_pool.general.name
+  work_queue_name = "default"
+
+  enforce_parameter_schema = false
+  parameter_openapi_schema = jsonencode({
+    type = "object"
+    properties = {
+      num_partitions  = { type = "integer" }
+      start_partition = { type = "integer" }
+      end_partition   = { type = "integer" }
+      deployment_fqn  = { type = "string" }
+      max_rows        = { type = "integer" }
+    }
+    additionalProperties = true
+  })
+
   version = "v1"
 }
 
@@ -207,14 +247,14 @@ resource "prefect_deployment" "enrich_vectors" {
   parameter_openapi_schema = jsonencode({
     type = "object"
     properties = {
-      pipeline_version       = { type = "string" }
-      enrichment_version     = { type = "string" }
-      model                  = { type = "string" }
-      confidence_threshold   = { type = "number" }
-      source                 = { type = "string" }
-      limit_chunks           = { type = "integer" }
-      include_rejected       = { type = "boolean" }
-      dry_run                = { type = "boolean" }
+      pipeline_version     = { type = "string" }
+      enrichment_version   = { type = "string" }
+      model                = { type = "string" }
+      confidence_threshold = { type = "number" }
+      source               = { type = "string" }
+      limit_chunks         = { type = "integer" }
+      include_rejected     = { type = "boolean" }
+      dry_run              = { type = "boolean" }
     }
     additionalProperties = true
   })
@@ -237,13 +277,13 @@ resource "prefect_deployment" "quality_audit" {
   parameter_openapi_schema = jsonencode({
     type = "object"
     properties = {
-      pipeline_version       = { type = "string" }
-      qdrant_collection      = { type = "string" }
-      sources_csv            = { type = "string" }
-      max_docs_per_source    = { type = "integer" }
-      min_extract_chars      = { type = "integer" }
-      max_html_tag_ratio     = { type = "number" }
-      save_report_to_minio   = { type = "boolean" }
+      pipeline_version     = { type = "string" }
+      qdrant_collection    = { type = "string" }
+      sources_csv          = { type = "string" }
+      max_docs_per_source  = { type = "integer" }
+      min_extract_chars    = { type = "integer" }
+      max_html_tag_ratio   = { type = "number" }
+      save_report_to_minio = { type = "boolean" }
     }
     additionalProperties = true
   })
@@ -266,13 +306,13 @@ resource "prefect_deployment" "reconcile_index" {
   parameter_openapi_schema = jsonencode({
     type = "object"
     properties = {
-      pipeline_version   = { type = "string" }
-      qdrant_collection  = { type = "string" }
-      max_docs           = { type = "integer" }
-      sources_csv        = { type = "string" }
-      dry_run            = { type = "boolean" }
-      delete_dotfiles    = { type = "boolean" }
-      delete_test_docs   = { type = "boolean" }
+      pipeline_version          = { type = "string" }
+      qdrant_collection         = { type = "string" }
+      max_docs                  = { type = "integer" }
+      sources_csv               = { type = "string" }
+      dry_run                   = { type = "boolean" }
+      delete_dotfiles           = { type = "boolean" }
+      delete_test_docs          = { type = "boolean" }
       delete_meta_refresh_stubs = { type = "boolean" }
     }
     additionalProperties = true
@@ -297,9 +337,9 @@ resource "prefect_deployment" "metadata_backfill" {
   parameter_openapi_schema = jsonencode({
     type = "object"
     properties = {
-      max_docs     = { type = "integer" }
-      sources_csv  = { type = "string" }
-      dry_run      = { type = "boolean" }
+      max_docs    = { type = "integer" }
+      sources_csv = { type = "string" }
+      dry_run     = { type = "boolean" }
     }
     additionalProperties = true
   })

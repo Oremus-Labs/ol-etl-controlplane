@@ -18,6 +18,10 @@ resource "prefect_flow" "vatican_sqlite_sync" {
   name = "vatican_sqlite_sync_flow"
 }
 
+resource "prefect_flow" "vatican_sqlite_enqueue" {
+  name = "vatican_sqlite_enqueue_flow"
+}
+
 resource "prefect_flow" "newadvent_zip_sync" {
   name = "newadvent_zip_sync_flow"
 }

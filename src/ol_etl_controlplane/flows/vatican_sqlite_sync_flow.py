@@ -37,8 +37,20 @@ def _pg_dsn_from_env(settings) -> str:  # noqa: ANN001
     return cfg.build_dsn()
 
 
+def _parse_csv(value: str | None) -> list[str] | None:
+    if not value:
+        return None
+    items = [v.strip() for v in value.split(",") if v.strip()]
+    return items or None
+
+
 @flow(name="vatican_sqlite_sync_flow")
-def vatican_sqlite_sync_flow() -> dict[str, int]:
+def vatican_sqlite_sync_flow(
+    partition_index: int | None = None,
+    num_partitions: int | None = None,
+    allow_single_run: bool = False,
+    max_rows: int | None = None,
+) -> dict[str, int]:
     settings = load_settings()
     logger = get_run_logger()
 
@@ -76,18 +88,36 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
     db_key = f"datasets/vatican_sqlite/{settings.dataset_version}/vatican.db"
     db_bytes = s3.get_bytes(db_key)
 
-    hosts = (
-        [h.strip() for h in (settings.vatican_sqlite_hosts or "").split(",") if h.strip()]
-        or None
-    )
+    effective_max_rows = settings.vatican_sqlite_max_rows if max_rows is None else int(max_rows)
+    if (partition_index is None) != (num_partitions is None):
+        raise ValueError("partition_index and num_partitions must be set together (or both unset)")
+    if num_partitions is None:
+        # Safety rail: prevent accidental single-run bulk ingest (should be partitioned).
+        if effective_max_rows > 2000 and not allow_single_run:
+            raise RuntimeError(
+                "Refusing to run Vatican sync as a single long job. "
+                "Use vatican_sqlite_enqueue_flow to enqueue partitioned runs, "
+                "or re-run with allow_single_run=true for a one-off."
+            )
+    else:
+        num_partitions = int(num_partitions)
+        partition_index = int(partition_index or 0)
+        if num_partitions <= 0:
+            raise ValueError("num_partitions must be > 0")
+        if partition_index < 0 or partition_index >= num_partitions:
+            raise ValueError("partition_index must be within [0, num_partitions)")
+
+    hosts = _parse_csv(settings.vatican_sqlite_hosts)
     with tempfile.TemporaryDirectory() as td:
         path = Path(td) / "vatican.db"
         path.write_bytes(db_bytes)
         rows = discover_document_rows(
             str(path),
-            limit=settings.vatican_sqlite_max_rows,
+            limit=effective_max_rows,
             hosts=hosts,
             sample_per_host=settings.vatican_sqlite_sample_per_host,
+            partition_index=partition_index,
+            num_partitions=num_partitions,
         )
     if hosts:
         logger.info(
@@ -108,6 +138,13 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
             "Vatican SQLite exclude URLs enabled: excluded=%s removed=%s remaining=%s",
             len(exclude_urls),
             before - len(rows),
+            len(rows),
+        )
+    if num_partitions is not None:
+        logger.info(
+            "Vatican SQLite partition enabled: partition=%s/%s rows=%s",
+            partition_index,
+            num_partitions,
             len(rows),
         )
 
