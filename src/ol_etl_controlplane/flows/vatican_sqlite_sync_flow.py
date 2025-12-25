@@ -151,7 +151,13 @@ def vatican_sqlite_sync_flow(
     created = 0
     skipped = 0
     failed = 0
-    timeout = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=10.0)
+    # Keep attempts snappy: Vatican endpoints can be slow/unreliable (especially over VPN),
+    # but we don't want a single URL to stall the whole partition.
+    def _timeout_for_attempt(attempt: int) -> httpx.Timeout:
+        read_s = min(30.0 * max(1, attempt), 120.0)
+        return httpx.Timeout(connect=10.0, read=read_s, write=30.0, pool=10.0)
+
+    default_timeout = _timeout_for_attempt(2)
     headers = {
         "User-Agent": "ol-etl-pipeline/1.0 (+https://oremuslabs.app)",
         "Accept": "text/html,application/xhtml+xml,application/pdf,*/*;q=0.8",
@@ -163,7 +169,7 @@ def vatican_sqlite_sync_flow(
         # Important: VPN rotations restart OpenVPN under the hood; resetting the client clears
         # any stale proxy connections in the pool.
         return httpx.Client(
-            timeout=timeout,
+            timeout=default_timeout,
             follow_redirects=True,
             headers=headers,
             http2=False,
@@ -189,7 +195,7 @@ def vatican_sqlite_sync_flow(
             r: httpx.Response | None = None
             for attempt in range(1, 4):
                 try:
-                    r = client.get(source_uri)
+                    r = client.get(source_uri, timeout=_timeout_for_attempt(attempt))
                 except httpx.RequestError as e:
                     logger.warning(
                         "Fetch failed (attempt %s/3) url=%s err=%s",
