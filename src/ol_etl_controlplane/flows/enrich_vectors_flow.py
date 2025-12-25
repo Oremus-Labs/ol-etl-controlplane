@@ -300,12 +300,29 @@ def enrich_vectors_flow(
                         chunk_text=chunk_text,
                         document_context=doc_ctx,
                     )
-                    content = llm.chat_completion(
-                        model=model,
-                        messages=messages,
-                        max_tokens=llm_max_tokens,
-                        temperature=0.0,
-                    )
+                    # The DMR-backed profiles can sometimes spend a lot of tokens in
+                    # `reasoning_content` and return an empty `message.content` if they hit
+                    # max_tokens. Retry once with a larger cap before failing the chunk.
+                    last_err: Exception | None = None
+                    content: str | None = None
+                    for attempt, max_tokens in enumerate(
+                        [llm_max_tokens, min(max(llm_max_tokens * 2, llm_max_tokens), 4096)]
+                    ):
+                        try:
+                            content = llm.chat_completion(
+                                model=model,
+                                messages=messages,
+                                max_tokens=max_tokens,
+                                temperature=0.0,
+                            )
+                            break
+                        except Exception as e:  # noqa: BLE001
+                            last_err = e
+                            if attempt == 1:
+                                raise
+                    if content is None and last_err is not None:
+                        raise last_err
+
                     payload = _parse_first_json_object(content)
                     confidence, payload = _validate_and_normalize_payload(payload)
                     is_accepted = bool(
