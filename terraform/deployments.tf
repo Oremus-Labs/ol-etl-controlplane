@@ -165,7 +165,9 @@ resource "prefect_deployment" "index_document" {
 
   entrypoint = "ol_etl_controlplane.flows.index_document_flow.index_document_flow"
 
-  work_pool_name  = prefect_work_pool.general.name
+  # Indexing is heavy (embeddings + Qdrant writes). Run it in a dedicated pool to
+  # keep pool-general responsive and to cap concurrent embedding load.
+  work_pool_name  = prefect_work_pool.index.name
   work_queue_name = "default"
 
   # See note above.

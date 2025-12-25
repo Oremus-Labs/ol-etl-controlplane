@@ -12,3 +12,8 @@ resource "prefect_work_pool" "crawl" {
   name = "pool-crawl"
   type = "process"
 }
+
+resource "prefect_work_pool" "index" {
+  name = "pool-index"
+  type = "process"
+}
