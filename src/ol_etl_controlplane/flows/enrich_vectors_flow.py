@@ -149,7 +149,7 @@ def enrich_vectors_flow(
     limit_chunks: int = 200,
     include_rejected: bool = False,
     dry_run: bool = False,
-    llm_max_tokens: int = 1024,
+    llm_max_tokens: int = 2048,
 ) -> dict[str, object]:
     """
     Day-2 enrichment:
