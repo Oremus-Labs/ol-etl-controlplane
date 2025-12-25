@@ -15,11 +15,11 @@ from ol_rag_pipeline_core.routing import deterministic_ocr_run_id
 from ol_rag_pipeline_core.storage.s3 import S3Client, S3Config, parse_s3_uri
 from ol_rag_pipeline_core.util import sha256_bytes
 from ol_rag_pipeline_core.validation import validate_extracted_text
+from prefect.deployments import run_deployment
 from prefect import flow, get_run_logger
 
 from ol_etl_controlplane.config import load_settings
 from ol_etl_controlplane.calibre import export_calibre_bundle
-from ol_etl_controlplane.flows.index_document_flow import index_document_flow
 
 
 def _pg_dsn_from_env(settings) -> str:  # noqa: ANN001
@@ -55,6 +55,7 @@ def process_document_flow(
     - Load raw bytes from MinIO
     - Extract/normalize born-digital text into MinIO + Postgres
     - Route scanned/binary documents to OCR (record queued OCR run)
+    - Trigger indexing via Prefect deployment (pool-index)
     """
     settings = load_settings()
     logger = get_run_logger()
@@ -287,13 +288,25 @@ def process_document_flow(
             docs.set_processing_state(document_id=document_id, status="extracted", is_scanned=False)
 
         logger.info("Extracted: document_id=%s chars=%s", document_id, len(extracted.text))
-        index_result = index_document_flow(
-            document_id=document_id,
-            pipeline_version=pv,
-            content_fingerprint=doc.content_fingerprint,
-            source=source or doc.source,
-            event_id=event_id,
-            event=event,
+
+        # Do NOT run indexing inline: it bypasses pool-index and can overwhelm embeddings/Qdrant.
+        # Instead, enqueue the index deployment (which runs on pool-index with bounded concurrency).
+        fr = run_deployment(
+            name="index_document_flow/index-document",
+            parameters={
+                "document_id": document_id,
+                "pipeline_version": pv,
+                "content_fingerprint": doc.content_fingerprint,
+                "source": source or doc.source,
+                "event_id": event_id,
+                "event": event,
+            },
+        )
+        index_flow_run_id = getattr(fr, "id", fr)
+        logger.info(
+            "Enqueued index_document_flow: document_id=%s flow_run_id=%s",
+            document_id,
+            index_flow_run_id,
         )
         resolved = review_repo.resolve_open_items(
             document_id=document_id,
@@ -304,8 +317,8 @@ def process_document_flow(
         return {
             "document_id": document_id,
             "pipeline_version": pv,
-            "status": index_result.get("status", "extracted"),
+            "status": "extracted",
             "extracted_chars": len(extracted.text),
             "extracted_sha256": sha256_bytes(text_bytes),
-            "index": index_result,
+            "index": {"enqueued": True, "flow_run_id": str(index_flow_run_id)},
         }
