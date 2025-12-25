@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+from collections import Counter
 from datetime import UTC, datetime
 from typing import Any
 
@@ -15,6 +17,19 @@ from ol_rag_pipeline_core.util import sha256_bytes
 from prefect import flow, get_run_logger
 
 from ol_etl_controlplane.config import load_settings
+
+
+_NON_ALNUM = re.compile(r"[^a-z0-9]+")
+
+
+def _slug(s: str, *, max_len: int = 60) -> str:
+    s = (s or "").strip().lower()
+    s = _NON_ALNUM.sub("-", s).strip("-")
+    if not s:
+        return ""
+    if len(s) > max_len:
+        s = s[:max_len].rstrip("-")
+    return s
 
 
 def _pg_dsn_from_env(settings) -> str:  # noqa: ANN001
@@ -145,6 +160,8 @@ def enrich_vectors_flow(
     include_rejected: bool = False,
     dry_run: bool = False,
     llm_max_tokens: int = 2048,
+    apply_ai_categories: bool = True,
+    max_ai_topics_per_document: int = 8,
 ) -> dict[str, object]:
     """
     Day-2 enrichment:
@@ -185,6 +202,9 @@ def enrich_vectors_flow(
     processed = 0
     accepted = 0
     errors = 0
+    applied = 0
+    docs_with_ai_categories = 0
+    ai_categories_added = 0
 
     with connect(dsn, schema="public") as conn:
         docs_repo = DocumentRepository(conn)
@@ -233,6 +253,8 @@ def enrich_vectors_flow(
                     )
                     errors += 1
                 continue
+
+            ai_topic_counter: Counter[str] = Counter()
 
             doc = docs_repo.get_document(document_id)
             doc_ctx: dict[str, Any] | None = None
@@ -296,6 +318,55 @@ def enrich_vectors_flow(
                     continue
 
                 try:
+                    # If this chunk already has an accepted enrichment row with stored output_json,
+                    # but it was never applied to Qdrant (common when running with dry_run=true),
+                    # apply it without calling the LLM again.
+                    if (
+                        c.existing_accepted is True
+                        and c.existing_applied_at is None
+                        and isinstance(c.existing_output_json, dict)
+                        and not dry_run
+                    ):
+                        confidence, payload = _validate_and_normalize_payload(c.existing_output_json)
+                        is_accepted = bool(
+                            confidence is not None and confidence >= confidence_threshold
+                        )
+                        if is_accepted:
+                            qdrant.set_payload(
+                                collection=settings.qdrant_collection,
+                                point_ids=[str(deterministic_point_id(chunk_id=c.chunk_id))],
+                                payload={
+                                    "enrichment": {
+                                        "version": enrichment_version,
+                                        "model": model,
+                                        "confidence": confidence,
+                                        "summary": payload["summary"],
+                                        "keywords": payload["keywords"],
+                                        "topics": payload["topics"],
+                                        "entities": payload["entities"],
+                                        "enriched_at": now.isoformat(),
+                                    }
+                                },
+                            )
+                            applied += 1
+                            accepted += 1
+                            for t in payload.get("topics") or []:
+                                if isinstance(t, str) and t.strip():
+                                    ai_topic_counter[t.strip()] += 1
+                            enrich_repo.upsert(
+                                chunk_id=c.chunk_id,
+                                enrichment_version=enrichment_version,
+                                model=model,
+                                chunk_sha256=chunk_sha,
+                                input_sha256=input_sha,
+                                confidence=confidence,
+                                accepted=True,
+                                output_json=payload,
+                                error=None,
+                                applied_at=now,
+                            )
+                            continue
+
                     messages = _build_enrichment_prompt(
                         chunk_text=chunk_text,
                         document_context=doc_ctx,
@@ -348,6 +419,7 @@ def enrich_vectors_flow(
                             },
                         )
                         applied_at = now
+                        applied += 1
 
                     enrich_repo.upsert(
                         chunk_id=c.chunk_id,
@@ -363,6 +435,9 @@ def enrich_vectors_flow(
                     )
                     if is_accepted:
                         accepted += 1
+                        for t in payload.get("topics") or []:
+                            if isinstance(t, str) and t.strip():
+                                ai_topic_counter[t.strip()] += 1
                 except Exception as e:  # noqa: BLE001
                     enrich_repo.upsert(
                         chunk_id=c.chunk_id,
@@ -378,23 +453,62 @@ def enrich_vectors_flow(
                     )
                     errors += 1
 
+            # Optionally persist doc-level AI categories derived from accepted topics.
+            # These will show up in future (re)index runs (since index uses docs.list_categories),
+            # and we also update Qdrant payload categories for the document now so filters/UI can
+            # use them immediately without re-embedding.
+            if apply_ai_categories and ai_topic_counter:
+                top_topics = [t for t, _ in ai_topic_counter.most_common(max_ai_topics_per_document)]
+                ai_cats: list[str] = []
+                for topic in top_topics:
+                    slug = _slug(topic)
+                    if not slug:
+                        continue
+                    ai_cats.append(f"ai:topic:{slug}")
+
+                if ai_cats and not dry_run:
+                    for cat in ai_cats:
+                        docs_repo.add_category(document_id, cat)
+                    docs_with_ai_categories += 1
+                    ai_categories_added += len(ai_cats)
+
+                    all_categories = docs_repo.list_categories(document_id)
+                    chunk_ids = [
+                        r[0]
+                        for r in conn.execute(
+                            "select chunk_id from chunks where document_id=%s and pipeline_version=%s order by chunk_index",
+                            (document_id, pv),
+                        ).fetchall()
+                    ]
+                    point_ids = [str(deterministic_point_id(chunk_id=cid)) for cid in chunk_ids]
+                    qdrant.set_payload(
+                        collection=settings.qdrant_collection,
+                        point_ids=point_ids,
+                        payload={"categories": all_categories},
+                    )
+
     logger.info(
         (
             "Enrichment complete: pipeline_version=%s enrichment_version=%s processed=%s "
-            "accepted=%s errors=%s dry_run=%s"
+            "accepted=%s applied=%s errors=%s dry_run=%s docs_with_ai_categories=%s"
         ),
         pv,
         enrichment_version,
         processed,
         accepted,
+        applied,
         errors,
         dry_run,
+        docs_with_ai_categories,
     )
     return {
         "pipeline_version": pv,
         "enrichment_version": enrichment_version,
         "processed": processed,
         "accepted": accepted,
+        "applied": applied,
         "errors": errors,
         "dry_run": dry_run,
+        "docs_with_ai_categories": docs_with_ai_categories,
+        "ai_categories_added": ai_categories_added,
     }
