@@ -22,6 +22,14 @@ resource "prefect_flow" "vatican_sqlite_enqueue" {
   name = "vatican_sqlite_enqueue_flow"
 }
 
+resource "prefect_flow" "vatican_sqlite_refetch_batch" {
+  name = "vatican_sqlite_refetch_batch_flow"
+}
+
+resource "prefect_flow" "vatican_sqlite_reconcile_missing" {
+  name = "vatican_sqlite_reconcile_missing_flow"
+}
+
 resource "prefect_flow" "newadvent_zip_sync" {
   name = "newadvent_zip_sync_flow"
 }

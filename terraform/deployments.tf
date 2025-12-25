@@ -111,6 +111,61 @@ resource "prefect_deployment" "vatican_sqlite_enqueue" {
   version = "v1"
 }
 
+resource "prefect_deployment" "vatican_sqlite_refetch_batch" {
+  name    = "vatican-sqlite-refetch-batch"
+  flow_id = prefect_flow.vatican_sqlite_refetch_batch.id
+
+  paused = false
+
+  entrypoint = "ol_etl_controlplane.flows.vatican_sqlite_refetch_batch_flow.vatican_sqlite_refetch_batch_flow"
+
+  # Needs VPN egress (external fetch).
+  work_pool_name  = prefect_work_pool.crawl.name
+  work_queue_name = "default"
+
+  enforce_parameter_schema = false
+  parameter_openapi_schema = jsonencode({
+    type = "object"
+    properties = {
+      urls           = { type = "array", items = { type = "string" } }
+      publish_events = { type = "boolean" }
+      force          = { type = "boolean" }
+    }
+    required             = ["urls"]
+    additionalProperties = true
+  })
+
+  version = "v1"
+}
+
+resource "prefect_deployment" "vatican_sqlite_reconcile_missing" {
+  name    = "vatican-sqlite-reconcile-missing"
+  flow_id = prefect_flow.vatican_sqlite_reconcile_missing.id
+
+  paused = false
+
+  entrypoint = "ol_etl_controlplane.flows.vatican_sqlite_reconcile_missing_flow.vatican_sqlite_reconcile_missing_flow"
+
+  # This only computes gaps and enqueues refetch batches (no external fetch).
+  work_pool_name  = prefect_work_pool.general.name
+  work_queue_name = "default"
+
+  enforce_parameter_schema = false
+  parameter_openapi_schema = jsonencode({
+    type = "object"
+    properties = {
+      batch_size             = { type = "integer" }
+      max_urls               = { type = "integer" }
+      include_missing_raw    = { type = "boolean" }
+      publish_events         = { type = "boolean" }
+      refetch_deployment_fqn = { type = "string" }
+    }
+    additionalProperties = true
+  })
+
+  version = "v1"
+}
+
 resource "prefect_deployment" "newadvent_zip_sync" {
   name    = "newadvent-zip-sync"
   flow_id = prefect_flow.newadvent_zip_sync.id
