@@ -201,6 +201,15 @@ def ocr_document_flow(
         ocr_result = run_ocr_ensemble(client=llm, pages=page_inputs, cfg=ensemble_cfg)
 
         base_prefix = f"library/ocr/{pv}/{doc.source}/{document_id}"
+        deleted = s3.delete_prefix(prefix=f"{base_prefix}/pages/")
+        if deleted:
+            logger.info(
+                "Cleared previous OCR page artifacts: document_id=%s deleted=%s prefix=s3://%s/%s/pages/",
+                document_id,
+                deleted,
+                s3.bucket,
+                base_prefix,
+            )
 
         # Persist per-page artifacts + ocr_pages rows.
         for page in ocr_result.pages:
