@@ -240,8 +240,6 @@ def enrich_vectors_flow(
                 doc_ctx = {
                     "document_id": doc.document_id,
                     "source": doc.source,
-                    "source_uri": doc.source_uri,
-                    "canonical_url": doc.canonical_url,
                     "title": doc.title,
                     "author": doc.author,
                     "published_year": doc.published_year,
