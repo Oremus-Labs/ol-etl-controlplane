@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     calibre_export_enabled: bool = Field(default=True, alias="CALIBRE_EXPORT_ENABLED")
     calibre_s3_bucket: str = Field(default="calibre-inbox", alias="CALIBRE_S3_BUCKET")
     calibre_s3_prefix: str = Field(default="etl", alias="CALIBRE_S3_PREFIX")
+    calibre_import_enabled: bool = Field(default=True, alias="CALIBRE_IMPORT_ENABLED")
+    calibre_importer_url: str = Field(
+        default="http://calibre-importer.calibre-web.svc.cluster.local:8091",
+        alias="CALIBRE_IMPORTER_URL",
+    )
+    calibre_importer_api_key: str | None = Field(default=None, alias="CALIBRE_IMPORTER_API_KEY")
+    calibre_import_timeout_s: float = Field(default=60.0, alias="CALIBRE_IMPORT_TIMEOUT_S")
 
     nextcloud_webdav_url: str | None = Field(default=None, alias="NEXTCLOUD_WEBDAV_URL")
     nextcloud_user: str | None = Field(default=None, alias="NEXTCLOUD_USER")

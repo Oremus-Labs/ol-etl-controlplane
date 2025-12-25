@@ -170,6 +170,22 @@ def check_nextcloud_webdav(settings: Settings) -> ContractResult:
 
 
 @task
+def check_calibre_importer(settings: Settings) -> ContractResult:
+    if not settings.calibre_import_enabled:
+        return ContractResult("calibre_importer", True, "disabled (CALIBRE_IMPORT_ENABLED=false)")
+    url = settings.calibre_importer_url.rstrip("/") + "/healthz"
+    headers = None
+    if settings.calibre_importer_api_key:
+        headers = {"Authorization": f"Bearer {settings.calibre_importer_api_key}"}
+    try:
+        status, body = _http_check(url, headers=headers)
+        ok = status == 200 and '"ok": true' in body.lower()
+        return ContractResult("calibre_importer", ok, f"GET {url} -> {status}")
+    except Exception as e:  # noqa: BLE001
+        return ContractResult("calibre_importer", False, _safe_detail(str(e)))
+
+
+@task
 def check_nats(settings: Settings) -> ContractResult:
     parsed = urlparse(settings.nats_url)
     host = parsed.hostname
@@ -200,6 +216,7 @@ def contracts_flow() -> list[ContractResult]:
         check_embedding(settings),
         check_s3_datasets(settings),
         check_nextcloud_webdav(settings),
+        check_calibre_importer(settings),
         check_nats(settings),
     ]
 

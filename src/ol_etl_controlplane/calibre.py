@@ -1,10 +1,64 @@
 from __future__ import annotations
 
+import json
+
+import httpx
+
 from ol_rag_pipeline_core.calibre import CalibreExportInput, CalibreExporter
 from ol_rag_pipeline_core.models import Document, DocumentLink
 from ol_rag_pipeline_core.repositories.documents import DocumentRepository
 from ol_rag_pipeline_core.repositories.files import DocumentFileRepository
 from ol_rag_pipeline_core.storage.s3 import S3Client, S3Config
+
+
+def _calibre_import(  # noqa: PLR0913
+    *,
+    logger,
+    importer_enabled: bool,
+    importer_url: str | None,
+    importer_api_key: str | None,
+    importer_timeout_s: float,
+    bundle_prefix: str,
+    document_id: str,
+) -> None:
+    if not importer_enabled:
+        return
+    if not importer_url:
+        logger.warning("Calibre import skipped: importer_url missing document_id=%s", document_id)
+        return
+
+    url = importer_url.rstrip("/") + "/api/v1/import"
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if importer_api_key:
+        headers["Authorization"] = f"Bearer {importer_api_key}"
+
+    try:
+        with httpx.Client(timeout=importer_timeout_s, headers=headers, follow_redirects=True) as client:
+            r = client.post(url, content=json.dumps({"prefix": bundle_prefix}))
+        if r.status_code != 200:
+            logger.warning(
+                "Calibre import failed: document_id=%s status=%s body=%s",
+                document_id,
+                r.status_code,
+                (r.text or "")[:800],
+            )
+            return
+        payload = r.json()
+        if not payload.get("ok"):
+            logger.warning(
+                "Calibre import failed: document_id=%s payload=%s",
+                document_id,
+                str(payload)[:800],
+            )
+            return
+        logger.info(
+            "Calibre import OK: document_id=%s book_id=%s prefix=%s",
+            document_id,
+            payload.get("book_id"),
+            bundle_prefix,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Calibre import failed: document_id=%s err=%s", document_id, str(e))
 
 
 def export_calibre_bundle(  # noqa: PLR0913
@@ -27,6 +81,10 @@ def export_calibre_bundle(  # noqa: PLR0913
     s3_secret_key: str,
     calibre_bucket: str,
     calibre_prefix: str,
+    importer_enabled: bool = True,
+    importer_url: str | None = None,
+    importer_api_key: str | None = None,
+    importer_timeout_s: float = 60.0,
 ) -> None:
     if not enabled:
         return
@@ -86,7 +144,15 @@ def export_calibre_bundle(  # noqa: PLR0913
             )
         )
         logger.info("Calibre export OK: document_id=%s prefix=%s", document_id, prefix_uri)
+        _calibre_import(
+            logger=logger,
+            importer_enabled=importer_enabled,
+            importer_url=importer_url,
+            importer_api_key=importer_api_key,
+            importer_timeout_s=importer_timeout_s,
+            bundle_prefix=res.base_prefix,
+            document_id=document_id,
+        )
     except Exception as e:  # noqa: BLE001
         # Calibre export should never block core ETL/indexing.
         logger.warning("Calibre export failed: document_id=%s err=%s", document_id, str(e))
-

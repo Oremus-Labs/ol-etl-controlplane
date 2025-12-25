@@ -295,6 +295,10 @@ def ocr_document_flow(
             s3_secret_key=settings.s3_secret_key or "",
             calibre_bucket=settings.calibre_s3_bucket,
             calibre_prefix=settings.calibre_s3_prefix,
+            importer_enabled=settings.calibre_import_enabled,
+            importer_url=settings.calibre_importer_url,
+            importer_api_key=settings.calibre_importer_api_key,
+            importer_timeout_s=settings.calibre_import_timeout_s,
         )
 
         # Validate merged text (same heuristics as Phase 4) + page gate.
