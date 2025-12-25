@@ -62,6 +62,7 @@ def ocr_document_flow(
     source: str | None = None,
     event_id: str | None = None,
     event: dict | None = None,
+    force: bool = False,
 ) -> dict[str, object]:
     """
     Phase 6:
@@ -126,17 +127,23 @@ def ocr_document_flow(
         if existing and existing.status in {"complete", "needs_review"}:
             existing_fp = (existing.metrics_json or {}).get("content_fingerprint")
             if existing_fp and doc.content_fingerprint and existing_fp == doc.content_fingerprint:
-                logger.info(
-                    "Already OCR'd (idempotent): document_id=%s status=%s",
+                if not force:
+                    logger.info(
+                        "Already OCR'd (idempotent): document_id=%s status=%s",
+                        document_id,
+                        existing.status,
+                    )
+                    return {
+                        "document_id": document_id,
+                        "pipeline_version": pv,
+                        "status": existing.status,
+                        "idempotent": True,
+                    }
+                logger.warning(
+                    "Force re-OCR enabled: document_id=%s prev_status=%s",
                     document_id,
                     existing.status,
                 )
-                return {
-                    "document_id": document_id,
-                    "pipeline_version": pv,
-                    "status": existing.status,
-                    "idempotent": True,
-                }
 
         # Mark as in progress.
         ocr_repo.upsert_ocr_run(
