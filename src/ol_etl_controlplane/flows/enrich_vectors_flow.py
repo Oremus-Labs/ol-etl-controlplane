@@ -108,29 +108,24 @@ def _build_enrichment_prompt(
     document_context: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
     system = (
-        "You enrich text chunks for retrieval/search.\n"
-        "Return a single JSON object only (no markdown, no commentary).\n"
-        "If you are not highly confident, set confidence < 0.95 and keep fields minimal.\n"
-        "Do not invent facts not supported by the text."
+        "Return ONLY one JSON object (no markdown, no prose).\n"
+        "Do not invent facts.\n"
+        "If you are not highly confident, set confidence < 0.95 and keep fields minimal."
     )
-    ctx = ""
-    if document_context:
-        ctx = "Known document metadata (do not contradict):\n" + json.dumps(
-            document_context, ensure_ascii=False
-        )
-    user = (
-        "Enrich the following text chunk for search.\n\n"
-        "Required JSON keys:\n"
-        "- confidence: number between 0 and 1\n"
-        "- summary: string (<= 60 words)\n"
-        "- keywords: array of strings (0-20)\n"
-        "- topics: array of strings (0-10)\n"
-        "- entities: object with keys persons/orgs/places, each an array of strings\n\n"
-        f"{ctx}\n\n"
-        "Text chunk:\n"
-        "-----\n"
-        f"{chunk_text}\n"
-        "-----"
+    ctx = document_context or {}
+    user = json.dumps(
+        {
+            "schema": {
+                "confidence": "number 0..1",
+                "summary": "string <= 60 words",
+                "keywords": "string[] 0..20",
+                "topics": "string[] 0..10",
+                "entities": {"persons": "string[]", "orgs": "string[]", "places": "string[]"},
+            },
+            "document_context": ctx,
+            "chunk_text": chunk_text,
+        },
+        ensure_ascii=False,
     )
     return [
         {"role": "system", "content": system},
