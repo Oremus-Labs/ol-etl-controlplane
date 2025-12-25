@@ -382,6 +382,12 @@ def ocr_document_flow(
             event_id=event_id,
             event=event,
         )
+        resolved = review_repo.resolve_open_items(
+            document_id=document_id,
+            pipeline_version=pv,
+        )
+        if resolved:
+            logger.info("Resolved review_queue items: document_id=%s count=%s", document_id, resolved)
         return {
             "document_id": document_id,
             "pipeline_version": pv,
