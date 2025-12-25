@@ -178,76 +178,86 @@ def vatican_sqlite_sync_flow(
 
     client = _new_client()
     try:
-        for row in rows:
-            source = "vatican_sqlite"
-            source_uri = row.url
-            document_id = stable_document_id(source, source_uri)
+        # Reuse a single Postgres connection for the whole flow run.
+        # Opening a new connection per row quickly exhausts Postgres max_connections
+        # once multiple partitions are running concurrently.
+        with connect(dsn, schema="public") as conn:
+            conn.autocommit = True
+            docs = DocumentRepository(conn)
+            files_repo = DocumentFileRepository(conn)
 
-            rotated = vpn_guard.before_request(source_uri)
-            if rotated:
-                logger.info(
-                    "Rotated VPN after %s external requests",
-                    settings.vpn_rotate_every_n_requests,
+            for row in rows:
+                source = "vatican_sqlite"
+                source_uri = row.url
+                document_id = stable_document_id(source, source_uri)
+
+                rotated = vpn_guard.before_request(source_uri)
+                if rotated:
+                    logger.info(
+                        "Rotated VPN after %s external requests",
+                        settings.vpn_rotate_every_n_requests,
+                    )
+                    client.close()
+                    client = _new_client()
+
+                r: httpx.Response | None = None
+                for attempt in range(1, 4):
+                    try:
+                        r = client.get(source_uri, timeout=_timeout_for_attempt(attempt))
+                    except httpx.RequestError as e:
+                        logger.warning(
+                            "Fetch failed (attempt %s/3) url=%s err=%s",
+                            attempt,
+                            source_uri,
+                            repr(e),
+                        )
+                        if settings.vpn_required:
+                            vpn_guard.rotate_vpn()
+                            client.close()
+                            client = _new_client()
+                        # Avoid hammering endpoints/proxy after a disconnect/timeout.
+                        time.sleep(min(10.0, 1.5 * attempt))
+                        continue
+
+                    if r.status_code in {403, 429, 500, 502, 503, 504}:
+                        logger.warning(
+                            "Fetch got %s (attempt %s/3) url=%s; rotating VPN",
+                            r.status_code,
+                            attempt,
+                            source_uri,
+                        )
+                        if settings.vpn_required:
+                            vpn_guard.rotate_vpn()
+                            client.close()
+                            client = _new_client()
+                        time.sleep(min(10.0, 1.5 * attempt))
+                        continue
+                    break
+
+                if not r or r.status_code >= 400:
+                    failed += 1
+                    continue
+                body = r.content
+                content_type = r.headers.get("content-type")
+
+                # archive.org /details pages are landing HTML; prefer downloading an actual PDF from /download/.
+                if is_archive_details_url(source_uri):
+                    try:
+                        resolved = resolve_and_download_pdf(client=client, details_url=source_uri)
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning(
+                            "archive.org resolve failed: url=%s err=%s", source_uri, repr(e)
+                        )
+                        resolved = None
+                    if resolved and resolved.body:
+                        body = resolved.body
+                        content_type = resolved.content_type or "application/pdf"
+                fingerprint = sha256_bytes(body)
+
+                filename = (
+                    urlparse(source_uri).path.rstrip("/").split("/")[-1]
+                    or f"{row.row_id}.bin"
                 )
-                client.close()
-                client = _new_client()
-
-            r: httpx.Response | None = None
-            for attempt in range(1, 4):
-                try:
-                    r = client.get(source_uri, timeout=_timeout_for_attempt(attempt))
-                except httpx.RequestError as e:
-                    logger.warning(
-                        "Fetch failed (attempt %s/3) url=%s err=%s",
-                        attempt,
-                        source_uri,
-                        repr(e),
-                    )
-                    if settings.vpn_required:
-                        vpn_guard.rotate_vpn()
-                        client.close()
-                        client = _new_client()
-                    # Avoid hammering endpoints/proxy after a disconnect/timeout.
-                    time.sleep(min(10.0, 1.5 * attempt))
-                    continue
-
-                if r.status_code in {403, 429, 500, 502, 503, 504}:
-                    logger.warning(
-                        "Fetch got %s (attempt %s/3) url=%s; rotating VPN",
-                        r.status_code,
-                        attempt,
-                        source_uri,
-                    )
-                    if settings.vpn_required:
-                        vpn_guard.rotate_vpn()
-                        client.close()
-                        client = _new_client()
-                    time.sleep(min(10.0, 1.5 * attempt))
-                    continue
-                break
-
-            if not r or r.status_code >= 400:
-                failed += 1
-                continue
-            body = r.content
-            content_type = r.headers.get("content-type")
-
-            # archive.org /details pages are landing HTML; prefer downloading an actual PDF from /download/.
-            if is_archive_details_url(source_uri):
-                try:
-                    resolved = resolve_and_download_pdf(client=client, details_url=source_uri)
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("archive.org resolve failed: url=%s err=%s", source_uri, repr(e))
-                    resolved = None
-                if resolved and resolved.body:
-                    body = resolved.body
-                    content_type = resolved.content_type or "application/pdf"
-            fingerprint = sha256_bytes(body)
-
-            filename = urlparse(source_uri).path.rstrip("/").split("/")[-1] or f"{row.row_id}.bin"
-            with connect(dsn, schema="public") as conn:
-                docs = DocumentRepository(conn)
-                files_repo = DocumentFileRepository(conn)
 
                 existing = docs.get_document(document_id)
                 if existing:
@@ -352,7 +362,9 @@ def vatican_sqlite_sync_flow(
                         "source_row_id": row.row_id,
                     },
                 )
-                publish_json_sync(settings.nats_url, settings.nats_subject, event.model_dump_json())
+                publish_json_sync(
+                    settings.nats_url, settings.nats_subject, event.model_dump_json()
+                )
                 created += 1
                 if (created + skipped + failed) % 250 == 0:
                     logger.info(
