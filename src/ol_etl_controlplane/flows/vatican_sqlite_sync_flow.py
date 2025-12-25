@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
@@ -112,7 +113,15 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
 
     created = 0
     skipped = 0
-    with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+    failed = 0
+    timeout = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=10.0)
+    headers = {
+        "User-Agent": "ol-etl-pipeline/1.0 (+https://oremuslabs.app)",
+        "Accept": "text/html,application/xhtml+xml,application/pdf,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9,it;q=0.7,fr;q=0.7",
+        "Connection": "keep-alive",
+    }
+    with httpx.Client(timeout=timeout, follow_redirects=True, headers=headers) as client:
         for row in rows:
             source = "vatican_sqlite"
             source_uri = row.url
@@ -138,6 +147,8 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
                     )
                     if settings.vpn_required:
                         vpn_guard.rotate_vpn()
+                    # Avoid hammering endpoints/proxy after a disconnect/timeout.
+                    time.sleep(min(10.0, 1.5 * attempt))
                     continue
 
                 if r.status_code in {403, 429, 500, 502, 503, 504}:
@@ -149,10 +160,12 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
                     )
                     if settings.vpn_required:
                         vpn_guard.rotate_vpn()
+                    time.sleep(min(10.0, 1.5 * attempt))
                     continue
                 break
 
             if not r or r.status_code >= 400:
+                failed += 1
                 continue
             body = r.content
             content_type = r.headers.get("content-type")
@@ -279,6 +292,19 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
                 )
                 publish_json_sync(settings.nats_url, settings.nats_subject, event.model_dump_json())
                 created += 1
+                if (created + skipped + failed) % 250 == 0:
+                    logger.info(
+                        "Vatican sync progress: processed=%s created=%s skipped=%s failed=%s",
+                        created + skipped + failed,
+                        created,
+                        skipped,
+                        failed,
+                    )
 
-    logger.info("Vatican SQLite sync complete: created=%s skipped=%s", created, skipped)
-    return {"created": created, "skipped": skipped}
+    logger.info(
+        "Vatican SQLite sync complete: created=%s skipped=%s failed=%s",
+        created,
+        skipped,
+        failed,
+    )
+    return {"created": created, "skipped": skipped, "failed": failed}
