@@ -155,6 +155,7 @@ resource "prefect_deployment" "vatican_sqlite_reconcile_missing" {
     type = "object"
     properties = {
       batch_size             = { type = "integer" }
+      dry_run                = { type = "boolean" }
       max_urls               = { type = "integer" }
       include_missing_raw    = { type = "boolean" }
       publish_events         = { type = "boolean" }

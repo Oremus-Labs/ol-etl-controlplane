@@ -27,6 +27,13 @@ def _pg_dsn_from_env(settings) -> str:  # noqa: ANN001
     return cfg.build_dsn()
 
 
+def _parse_csv(value: str | None) -> list[str] | None:
+    if not value:
+        return None
+    items = [v.strip() for v in value.split(",") if v.strip()]
+    return items or None
+
+
 @flow(name="vatican_sqlite_reconcile_missing_flow")
 def vatican_sqlite_reconcile_missing_flow(
     *,
@@ -34,6 +41,7 @@ def vatican_sqlite_reconcile_missing_flow(
     max_urls: int = 500,
     include_missing_raw: bool = True,
     publish_events: bool = True,
+    dry_run: bool = True,
     refetch_deployment_fqn: str = "vatican_sqlite_refetch_batch_flow/vatican-sqlite-refetch-batch",
 ) -> dict[str, Any]:
     """
@@ -49,6 +57,7 @@ def vatican_sqlite_reconcile_missing_flow(
 
     batch_size = max(1, int(batch_size))
     max_urls = max(0, int(max_urls))
+    dry_run = bool(dry_run)
 
     if not settings.s3_access_key or not settings.s3_secret_key:
         raise RuntimeError("Missing S3_ACCESS_KEY / S3_SECRET_KEY")
@@ -70,11 +79,25 @@ def vatican_sqlite_reconcile_missing_flow(
     with tempfile.TemporaryDirectory() as td:
         path = Path(td) / "vatican.db"
         path.write_bytes(db_bytes)
-        rows = discover_document_rows(str(path), limit=0)
+        hosts = _parse_csv(settings.vatican_sqlite_hosts)
+        rows = discover_document_rows(
+            str(path),
+            limit=0,
+            hosts=hosts,
+            sample_per_host=settings.vatican_sqlite_sample_per_host,
+        )
+
+    exclude_urls = {
+        u.strip()
+        for u in (settings.vatican_sqlite_exclude_urls or "").split(",")
+        if u.strip()
+    }
 
     urls_from_sqlite = []
     for row in rows:
         if not row.url:
+            continue
+        if row.url in exclude_urls:
             continue
         urls_from_sqlite.append(row.url)
 
@@ -128,6 +151,20 @@ def vatican_sqlite_reconcile_missing_flow(
         batch_size,
     )
 
+    if dry_run:
+        return {
+            "dry_run": True,
+            "sqlite_urls": len(urls_from_sqlite),
+            "missing_docs": len(missing_urls),
+            "missing_raw": len(missing_raw_urls),
+            "would_enqueue_urls": len(candidate_urls),
+            "batch_size": batch_size,
+            "max_urls": max_urls,
+            "publish_events": publish_events,
+            "refetch_deployment_fqn": refetch_deployment_fqn,
+            "candidate_urls_sample": candidate_urls[: min(20, len(candidate_urls))],
+        }
+
     enqueued = 0
     flow_run_ids: list[str] = []
     for i in range(0, len(candidate_urls), batch_size):
@@ -141,6 +178,7 @@ def vatican_sqlite_reconcile_missing_flow(
         enqueued += 1
 
     return {
+        "dry_run": False,
         "sqlite_urls": len(urls_from_sqlite),
         "missing_docs": len(missing_urls),
         "missing_raw": len(missing_raw_urls),
@@ -151,4 +189,3 @@ def vatican_sqlite_reconcile_missing_flow(
         "refetch_deployment_fqn": refetch_deployment_fqn,
         "flow_run_ids": flow_run_ids,
     }
-
