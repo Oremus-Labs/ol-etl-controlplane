@@ -168,6 +168,7 @@ resource "prefect_deployment" "ocr_document" {
       source              = { type = "string" }
       event_id            = { type = "string" }
       event               = { type = "object" }
+      force               = { type = "boolean" }
     }
     required             = ["document_id"]
     additionalProperties = true
