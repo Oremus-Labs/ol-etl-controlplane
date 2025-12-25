@@ -8,3 +8,7 @@ resource "prefect_work_pool" "ocr" {
   type = "process"
 }
 
+resource "prefect_work_pool" "crawl" {
+  name = "pool-crawl"
+  type = "process"
+}

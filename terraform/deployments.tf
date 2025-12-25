@@ -64,7 +64,8 @@ resource "prefect_deployment" "vatican_sqlite_sync" {
 
   entrypoint = "ol_etl_controlplane.flows.vatican_sqlite_sync_flow.vatican_sqlite_sync_flow"
 
-  work_pool_name  = prefect_work_pool.general.name
+  # Crawl pool has VPN egress and is tuned for long-running external fetches.
+  work_pool_name  = prefect_work_pool.crawl.name
   work_queue_name = "default"
 
   enforce_parameter_schema = false
