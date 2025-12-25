@@ -12,6 +12,7 @@ from ol_rag_pipeline_core.models import Document, DocumentLink
 from ol_rag_pipeline_core.nats_publisher import publish_json_sync
 from ol_rag_pipeline_core.repositories.documents import DocumentRepository
 from ol_rag_pipeline_core.repositories.files import DocumentFileRepository
+from ol_rag_pipeline_core.html_head import extract_html_head_metadata
 from ol_rag_pipeline_core.sources.newadvent_zip import iter_zip_entries
 from ol_rag_pipeline_core.storage.s3 import S3Client, S3Config
 from ol_rag_pipeline_core.util import sha256_bytes, stable_document_id
@@ -32,19 +33,17 @@ def _pg_dsn_from_env(settings) -> str:  # noqa: ANN001
     return cfg.build_dsn()
 
 
-_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+_NON_ALNUM = re.compile(r"[^a-z0-9]+")
 
 
-def _extract_title_from_html(body: bytes) -> str | None:
-    try:
-        text = body[:65536].decode("utf-8", errors="replace")
-    except Exception:  # noqa: BLE001
-        return None
-    m = _TITLE_RE.search(text)
-    if not m:
-        return None
-    title = re.sub(r"\s+", " ", m.group(1) or "").strip()
-    return title or None
+def _slug(s: str, *, max_len: int = 60) -> str:
+    s = (s or "").strip().lower()
+    s = _NON_ALNUM.sub("-", s).strip("-")
+    if not s:
+        return ""
+    if len(s) > max_len:
+        s = s[:max_len].rstrip("-")
+    return s
 
 
 def _canonical_url_for_zip_path(path: str) -> str:
@@ -75,7 +74,21 @@ def newadvent_zip_sync_flow() -> dict[str, int]:
 
     zip_key = f"datasets/newadvent_zip/{settings.dataset_version}/newadvent.zip"
     zip_bytes = s3.get_bytes(zip_key)
-    entries = iter_zip_entries(zip_bytes, limit=settings.newadvent_zip_max_entries)
+    include_prefixes = (
+        [p.strip() for p in (settings.newadvent_zip_include_prefixes or "").split(",") if p.strip()]
+        or None
+    )
+    entries = iter_zip_entries(
+        zip_bytes,
+        limit=settings.newadvent_zip_max_entries,
+        include_prefixes=include_prefixes,
+    )
+    if include_prefixes:
+        logger.info(
+            "New Advent ZIP include prefixes enabled: prefixes=%s entries=%s",
+            ",".join(include_prefixes),
+            len(entries),
+        )
 
     created = 0
     skipped = 0
@@ -85,7 +98,19 @@ def newadvent_zip_sync_flow() -> dict[str, int]:
         document_id = stable_document_id(source, source_uri)
         fingerprint = sha256_bytes(entry.body)
         canonical_url = _canonical_url_for_zip_path(entry.path)
-        title = _extract_title_from_html(entry.body) if entry.content_type == "text/html" else None
+
+        collection = (entry.path or "").replace("\\", "/").lstrip("/").split("/", 1)[0].strip().lower()
+        collection = collection or "unknown"
+        collection_slug = _slug(collection)
+        categories = [f"newadvent:collection:{collection_slug}"] if collection_slug else []
+
+        meta = None
+        title = None
+        og_image = None
+        if entry.content_type == "text/html":
+            meta = extract_html_head_metadata(entry.body)
+            title = meta.title
+            og_image = (meta.open_graph.get("og:image") if meta else None) or None
 
         filename = Path(entry.path).name or "entry.bin"
         with connect(dsn, schema="public") as conn:
@@ -109,9 +134,25 @@ def newadvent_zip_sync_flow() -> dict[str, int]:
                     content_type=entry.content_type,
                     is_scanned=is_scanned,
                     status=status,
+                    categories_json={
+                        "zip_path": entry.path,
+                        "collection": collection,
+                        "meta": (
+                            {
+                                "canonical_url": meta.canonical_url if meta else None,
+                                "description": meta.description if meta else None,
+                                "open_graph": meta.open_graph if meta else {},
+                                "meta_by_name": (meta.meta_by_name if meta else {}),
+                            }
+                            if meta
+                            else None
+                        ),
+                    },
                     source_dataset=f"zip:{settings.dataset_version}",
                 )
             )
+            for c in categories:
+                docs.add_category(document_id, c)
 
             if existing and existing.content_fingerprint == fingerprint:
                 skipped += 1
@@ -140,6 +181,22 @@ def newadvent_zip_sync_flow() -> dict[str, int]:
                     url=canonical_url,
                 )
             )
+            if meta and meta.canonical_url and meta.canonical_url != canonical_url:
+                docs.add_link(
+                    DocumentLink(
+                        document_id=document_id,
+                        link_type="canonical_url_discovered",
+                        url=meta.canonical_url,
+                    )
+                )
+            if og_image:
+                docs.add_link(
+                    DocumentLink(
+                        document_id=document_id,
+                        link_type="og_image",
+                        url=og_image,
+                    )
+                )
             docs.add_link(
                 DocumentLink(
                     document_id=document_id,
@@ -161,6 +218,8 @@ def newadvent_zip_sync_flow() -> dict[str, int]:
                     "is_scanned": None,
                     "canonical_url": canonical_url,
                     "title": title,
+                    "collection": collection,
+                    "categories": categories,
                 },
             )
             publish_json_sync(settings.nats_url, settings.nats_subject, event.model_dump_json())

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from ast import literal_eval
 from collections import Counter
 from datetime import UTC, datetime
 from typing import Any
@@ -45,20 +46,44 @@ def _pg_dsn_from_env(settings) -> str:  # noqa: ANN001
 
 
 def _parse_first_json_object(text: str) -> dict[str, Any]:
+    text = (text or "").strip()
+    if not text:
+        raise RuntimeError("LLM response was empty")
+
+    # Strip common ```json fences.
+    if text.startswith("```"):
+        text = text.strip("`").strip()
+        if text.lower().startswith("json"):
+            text = text[4:].strip()
+        if text.endswith("```"):
+            text = text[:-3].strip()
+
+    # First try: full-string JSON object.
     try:
         payload = json.loads(text)
         if isinstance(payload, dict):
             return payload
     except Exception:  # noqa: BLE001
         pass
+
+    # Second try: extract the first {...} block.
     start = text.find("{")
     end = text.rfind("}")
     if start == -1 or end == -1 or end <= start:
         raise RuntimeError("LLM response was not valid JSON")
-    payload = json.loads(text[start : end + 1])
-    if not isinstance(payload, dict):
-        raise RuntimeError("LLM response JSON was not an object")
-    return payload
+    block = text[start : end + 1]
+
+    try:
+        payload = json.loads(block)
+        if isinstance(payload, dict):
+            return payload
+    except Exception:  # noqa: BLE001
+        # Last resort: tolerate Python-literal dicts (single quotes, None/True/False, etc).
+        payload = literal_eval(block)
+        if isinstance(payload, dict):
+            return payload
+
+    raise RuntimeError("LLM response JSON was not an object")
 
 
 def _normalize_str_list(items: object, *, max_items: int) -> list[str]:
@@ -438,6 +463,21 @@ def enrich_vectors_flow(
                         for t in payload.get("topics") or []:
                             if isinstance(t, str) and t.strip():
                                 ai_topic_counter[t.strip()] += 1
+                except Exception as e:  # noqa: BLE001
+                    enrich_repo.upsert(
+                        chunk_id=c.chunk_id,
+                        enrichment_version=enrichment_version,
+                        model=model,
+                        chunk_sha256=chunk_sha,
+                        input_sha256=input_sha,
+                        confidence=None,
+                        accepted=False,
+                        output_json=None,
+                        error=f"{type(e).__name__}: {e} | output_prefix={(content or '')[:600]}",
+                        applied_at=None,
+                    )
+                    errors += 1
+                    continue
                 except Exception as e:  # noqa: BLE001
                     enrich_repo.upsert(
                         chunk_id=c.chunk_id,

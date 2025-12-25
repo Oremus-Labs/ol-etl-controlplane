@@ -14,6 +14,7 @@ from ol_rag_pipeline_core.models import Document, DocumentLink
 from ol_rag_pipeline_core.nats_publisher import publish_json_sync
 from ol_rag_pipeline_core.repositories.documents import DocumentRepository
 from ol_rag_pipeline_core.repositories.files import DocumentFileRepository
+from ol_rag_pipeline_core.sources.archive_org import is_archive_details_url, resolve_and_download_pdf
 from ol_rag_pipeline_core.sources.vatican_sqlite import discover_document_rows
 from ol_rag_pipeline_core.storage.s3 import S3Client, S3Config
 from ol_rag_pipeline_core.util import sha256_bytes, stable_document_id
@@ -74,10 +75,40 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
     db_key = f"datasets/vatican_sqlite/{settings.dataset_version}/vatican.db"
     db_bytes = s3.get_bytes(db_key)
 
+    hosts = (
+        [h.strip() for h in (settings.vatican_sqlite_hosts or "").split(",") if h.strip()]
+        or None
+    )
     with tempfile.TemporaryDirectory() as td:
         path = Path(td) / "vatican.db"
         path.write_bytes(db_bytes)
-        rows = discover_document_rows(str(path), limit=settings.vatican_sqlite_max_rows)
+        rows = discover_document_rows(
+            str(path),
+            limit=settings.vatican_sqlite_max_rows,
+            hosts=hosts,
+            sample_per_host=settings.vatican_sqlite_sample_per_host,
+        )
+    if hosts:
+        logger.info(
+            "Vatican SQLite host filter enabled: hosts=%s sample_per_host=%s rows=%s",
+            ",".join(hosts),
+            settings.vatican_sqlite_sample_per_host,
+            len(rows),
+        )
+    exclude_urls = {
+        u.strip()
+        for u in (settings.vatican_sqlite_exclude_urls or "").split(",")
+        if u.strip()
+    }
+    if exclude_urls:
+        before = len(rows)
+        rows = [r for r in rows if r.url not in exclude_urls]
+        logger.info(
+            "Vatican SQLite exclude URLs enabled: excluded=%s removed=%s remaining=%s",
+            len(exclude_urls),
+            before - len(rows),
+            len(rows),
+        )
 
     created = 0
     skipped = 0
@@ -105,7 +136,8 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
                         source_uri,
                         repr(e),
                     )
-                    vpn_guard.rotate_vpn()
+                    if settings.vpn_required:
+                        vpn_guard.rotate_vpn()
                     continue
 
                 if r.status_code in {403, 429, 500, 502, 503, 504}:
@@ -115,7 +147,8 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
                         attempt,
                         source_uri,
                     )
-                    vpn_guard.rotate_vpn()
+                    if settings.vpn_required:
+                        vpn_guard.rotate_vpn()
                     continue
                 break
 
@@ -123,6 +156,17 @@ def vatican_sqlite_sync_flow() -> dict[str, int]:
                 continue
             body = r.content
             content_type = r.headers.get("content-type")
+
+            # archive.org /details pages are landing HTML; prefer downloading an actual PDF from /download/.
+            if is_archive_details_url(source_uri):
+                try:
+                    resolved = resolve_and_download_pdf(client=client, details_url=source_uri)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("archive.org resolve failed: url=%s err=%s", source_uri, repr(e))
+                    resolved = None
+                if resolved and resolved.body:
+                    body = resolved.body
+                    content_type = resolved.content_type or "application/pdf"
             fingerprint = sha256_bytes(body)
 
             filename = urlparse(source_uri).path.rstrip("/").split("/")[-1] or f"{row.row_id}.bin"

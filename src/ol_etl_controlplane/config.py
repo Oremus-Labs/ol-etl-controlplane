@@ -56,7 +56,30 @@ class Settings(BaseSettings):
     newadvent_seed_urls: str | None = Field(default=None, alias="NEWADVENT_SEED_URLS")
     newadvent_web_max_pages: int = Field(default=25, alias="NEWADVENT_WEB_MAX_PAGES")
     vatican_sqlite_max_rows: int = Field(default=25, alias="VATICAN_SQLITE_MAX_ROWS")
+    vatican_sqlite_hosts: str | None = Field(
+        default=None,
+        alias="VATICAN_SQLITE_HOSTS",
+        description="Comma-separated hostnames to include (e.g. www.vatican.va,archive.org).",
+    )
+    vatican_sqlite_sample_per_host: int | None = Field(
+        default=None,
+        alias="VATICAN_SQLITE_SAMPLE_PER_HOST",
+        description=(
+            "If set (and VATICAN_SQLITE_HOSTS is set), sample up to N rows per host "
+            "before applying VATICAN_SQLITE_MAX_ROWS."
+        ),
+    )
+    vatican_sqlite_exclude_urls: str | None = Field(
+        default=None,
+        alias="VATICAN_SQLITE_EXCLUDE_URLS",
+        description="Comma-separated exact URLs to skip during Vatican sqlite sync.",
+    )
     newadvent_zip_max_entries: int = Field(default=50, alias="NEWADVENT_ZIP_MAX_ENTRIES")
+    newadvent_zip_include_prefixes: str | None = Field(
+        default=None,
+        alias="NEWADVENT_ZIP_INCLUDE_PREFIXES",
+        description="Comma-separated ZIP top-level prefixes to include (e.g. cathen,fathers,bible).",
+    )
 
     extract_min_chars: int = Field(default=200, alias="EXTRACT_MIN_CHARS")
     extract_min_alpha_ratio: float = Field(default=0.15, alias="EXTRACT_MIN_ALPHA_RATIO")
