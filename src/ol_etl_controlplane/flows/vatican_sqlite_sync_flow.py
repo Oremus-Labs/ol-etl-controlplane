@@ -158,7 +158,20 @@ def vatican_sqlite_sync_flow(
         "Accept-Language": "en-US,en;q=0.9,it;q=0.7,fr;q=0.7",
         "Connection": "keep-alive",
     }
-    with httpx.Client(timeout=timeout, follow_redirects=True, headers=headers) as client:
+
+    def _new_client() -> httpx.Client:
+        # Important: VPN rotations restart OpenVPN under the hood; resetting the client clears
+        # any stale proxy connections in the pool.
+        return httpx.Client(
+            timeout=timeout,
+            follow_redirects=True,
+            headers=headers,
+            http2=False,
+            limits=httpx.Limits(max_connections=10, max_keepalive_connections=0),
+        )
+
+    client = _new_client()
+    try:
         for row in rows:
             source = "vatican_sqlite"
             source_uri = row.url
@@ -170,6 +183,8 @@ def vatican_sqlite_sync_flow(
                     "Rotated VPN after %s external requests",
                     settings.vpn_rotate_every_n_requests,
                 )
+                client.close()
+                client = _new_client()
 
             r: httpx.Response | None = None
             for attempt in range(1, 4):
@@ -184,6 +199,8 @@ def vatican_sqlite_sync_flow(
                     )
                     if settings.vpn_required:
                         vpn_guard.rotate_vpn()
+                        client.close()
+                        client = _new_client()
                     # Avoid hammering endpoints/proxy after a disconnect/timeout.
                     time.sleep(min(10.0, 1.5 * attempt))
                     continue
@@ -197,6 +214,8 @@ def vatican_sqlite_sync_flow(
                     )
                     if settings.vpn_required:
                         vpn_guard.rotate_vpn()
+                        client.close()
+                        client = _new_client()
                     time.sleep(min(10.0, 1.5 * attempt))
                     continue
                 break
@@ -337,6 +356,8 @@ def vatican_sqlite_sync_flow(
                         skipped,
                         failed,
                     )
+    finally:
+        client.close()
 
     logger.info(
         "Vatican SQLite sync complete: created=%s skipped=%s failed=%s",
