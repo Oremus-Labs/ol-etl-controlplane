@@ -61,14 +61,8 @@ def vatican_sqlite_sync_flow(
 
     proxy_pool = _parse_csv(settings.vpn_http_proxy_pool)
     vpn_guard = VpnRotationGuard(
-        gluetun=(
-            None
-            if proxy_pool
-            else GluetunHttpControlClient(
-                GluetunConfig(
-                    control_url=settings.gluetun_control_url, api_key=settings.gluetun_api_key
-                )
-            )
+        gluetun=GluetunHttpControlClient(
+            GluetunConfig(control_url=settings.gluetun_control_url, api_key=settings.gluetun_api_key)
         ),
         proxy_pool=proxy_pool,
         rotate_every_n_requests=settings.vpn_rotate_every_n_requests,
@@ -160,8 +154,9 @@ def vatican_sqlite_sync_flow(
     # Keep attempts snappy: Vatican endpoints can be slow/unreliable (especially over VPN),
     # but we don't want a single URL to stall the whole partition.
     def _timeout_for_attempt(attempt: int) -> httpx.Timeout:
-        read_s = min(30.0 * max(1, attempt), 120.0)
-        return httpx.Timeout(connect=10.0, read=read_s, write=30.0, pool=10.0)
+        connect_s = float(settings.vatican_http_connect_timeout_s)
+        read_s = min(float(settings.vatican_http_read_timeout_s) * max(1, attempt), float(settings.vatican_http_max_read_timeout_s))
+        return httpx.Timeout(connect=connect_s, read=read_s, write=30.0, pool=connect_s)
 
     default_timeout = _timeout_for_attempt(2)
     headers = {
@@ -179,7 +174,7 @@ def vatican_sqlite_sync_flow(
             follow_redirects=True,
             headers=headers,
             http2=False,
-            limits=httpx.Limits(max_connections=10, max_keepalive_connections=0),
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
         )
 
     client = _new_client()
@@ -197,74 +192,6 @@ def vatican_sqlite_sync_flow(
                 source_uri = row.url
                 document_id = stable_document_id(source, source_uri)
 
-                rotated = vpn_guard.before_request(source_uri)
-                if rotated:
-                    logger.info(
-                        "Rotated VPN after %s external requests",
-                        settings.vpn_rotate_every_n_requests,
-                    )
-                    client.close()
-                    client = _new_client()
-
-                r: httpx.Response | None = None
-                for attempt in range(1, 4):
-                    try:
-                        r = client.get(source_uri, timeout=_timeout_for_attempt(attempt))
-                    except httpx.RequestError as e:
-                        logger.warning(
-                            "Fetch failed (attempt %s/3) url=%s err=%s",
-                            attempt,
-                            source_uri,
-                            repr(e),
-                        )
-                        if settings.vpn_required:
-                            vpn_guard.rotate_vpn()
-                            client.close()
-                            client = _new_client()
-                        # Avoid hammering endpoints/proxy after a disconnect/timeout.
-                        time.sleep(min(10.0, 1.5 * attempt))
-                        continue
-
-                    if r.status_code in {403, 429, 500, 502, 503, 504}:
-                        logger.warning(
-                            "Fetch got %s (attempt %s/3) url=%s; rotating VPN",
-                            r.status_code,
-                            attempt,
-                            source_uri,
-                        )
-                        if settings.vpn_required:
-                            vpn_guard.rotate_vpn()
-                            client.close()
-                            client = _new_client()
-                        time.sleep(min(10.0, 1.5 * attempt))
-                        continue
-                    break
-
-                if not r or r.status_code >= 400:
-                    failed += 1
-                    continue
-                body = r.content
-                content_type = r.headers.get("content-type")
-
-                # archive.org /details pages are landing HTML; prefer downloading an actual PDF from /download/.
-                if is_archive_details_url(source_uri):
-                    try:
-                        resolved = resolve_and_download_pdf(client=client, details_url=source_uri)
-                    except Exception as e:  # noqa: BLE001
-                        logger.warning(
-                            "archive.org resolve failed: url=%s err=%s", source_uri, repr(e)
-                        )
-                        resolved = None
-                    if resolved and resolved.body:
-                        body = resolved.body
-                        content_type = resolved.content_type or "application/pdf"
-                fingerprint = sha256_bytes(body)
-
-                filename = (
-                    urlparse(source_uri).path.rstrip("/").split("/")[-1]
-                    or f"{row.row_id}.bin"
-                )
-
                 existing = docs.get_document(document_id)
                 if existing:
                     status = existing.status
@@ -273,8 +200,7 @@ def vatican_sqlite_sync_flow(
                     status = "discovered"
                     is_scanned = None
 
-                # Always upsert metadata even if the raw content fingerprint did not change.
-                # This lets us backfill title/year/author/categories for already-ingested docs.
+                # Upsert metadata even before fetch so we can track fetch failures and retry later.
                 doc_categories = [c for c in (row.categories or []) if c]
                 docs.upsert_document(
                     Document(
@@ -286,8 +212,7 @@ def vatican_sqlite_sync_flow(
                         author=row.author,
                         published_year=row.year,
                         language=row.language,
-                        content_fingerprint=fingerprint,
-                        content_type=content_type,
+                        content_type=None,
                         is_scanned=is_scanned,
                         status=status,
                         categories_json={
@@ -318,6 +243,120 @@ def vatican_sqlite_sync_flow(
                             url=row.bibliography,
                         )
                     )
+
+                existing_raw = files_repo.get_file(document_id=document_id, variant="raw")
+                if existing_raw and existing and existing.content_fingerprint:
+                    skipped += 1
+                    continue
+
+                rotated = vpn_guard.before_request(source_uri)
+                if rotated:
+                    logger.info(
+                        "Rotated VPN after %s external requests",
+                        settings.vpn_rotate_every_n_requests,
+                    )
+                    client.close()
+                    client = _new_client()
+
+                r: httpx.Response | None = None
+                max_attempts = max(1, int(settings.vatican_http_max_attempts))
+                for attempt in range(1, max_attempts + 1):
+                    try:
+                        r = client.get(source_uri, timeout=_timeout_for_attempt(attempt))
+                    except httpx.RequestError as e:
+                        logger.warning(
+                            "Fetch failed (attempt %s/%s) url=%s err=%s",
+                            attempt,
+                            max_attempts,
+                            source_uri,
+                            repr(e),
+                        )
+                        if settings.vpn_required:
+                            vpn_guard.rotate_vpn()
+                            client.close()
+                            client = _new_client()
+                        # Avoid hammering endpoints/proxy after a disconnect/timeout.
+                        time.sleep(min(10.0, float(settings.vatican_http_retry_sleep_s) * attempt))
+                        continue
+
+                    if r.status_code in {403, 429, 500, 502, 503, 504}:
+                        logger.warning(
+                            "Fetch got %s (attempt %s/%s) url=%s; rotating VPN",
+                            r.status_code,
+                            attempt,
+                            max_attempts,
+                            source_uri,
+                        )
+                        if settings.vpn_required:
+                            vpn_guard.rotate_vpn()
+                            client.close()
+                            client = _new_client()
+                        time.sleep(min(10.0, float(settings.vatican_http_retry_sleep_s) * attempt))
+                        continue
+                    break
+
+                if not r or r.status_code >= 400:
+                    # Track for later retry (refetch flow) instead of silently skipping.
+                    if not existing or existing.status == "discovered":
+                        docs.set_processing_state(
+                            document_id=document_id,
+                            status="fetch_failed",
+                            is_scanned=is_scanned,
+                        )
+                    failed += 1
+                    continue
+                body = r.content
+                content_type = r.headers.get("content-type")
+
+                # archive.org /details pages are landing HTML; prefer downloading an actual PDF from /download/.
+                if is_archive_details_url(source_uri):
+                    try:
+                        resolved = resolve_and_download_pdf(client=client, details_url=source_uri)
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning(
+                            "archive.org resolve failed: url=%s err=%s", source_uri, repr(e)
+                        )
+                        resolved = None
+                    if resolved and resolved.body:
+                        body = resolved.body
+                        content_type = resolved.content_type or "application/pdf"
+                fingerprint = sha256_bytes(body)
+
+                filename = (
+                    urlparse(source_uri).path.rstrip("/").split("/")[-1]
+                    or f"{row.row_id}.bin"
+                )
+                # Reset a fetch_failed doc back to discovered on success so the pipeline continues.
+                if status == "fetch_failed":
+                    status = "discovered"
+
+                # Always upsert metadata even if the raw content fingerprint did not change.
+                # This lets us backfill title/year/author/categories for already-ingested docs.
+                docs.upsert_document(
+                    Document(
+                        document_id=document_id,
+                        source=source,
+                        source_uri=source_uri,
+                        canonical_url=source_uri,
+                        title=row.title,
+                        author=row.author,
+                        published_year=row.year,
+                        language=row.language,
+                        content_fingerprint=fingerprint,
+                        content_type=content_type,
+                        is_scanned=is_scanned,
+                        status=status,
+                        categories_json={
+                            "categories": doc_categories,
+                            "publisher": row.publisher,
+                            "short_title": row.short_title,
+                            "display_year": row.display_year,
+                            "raw": row.raw_json,
+                            "source_row_id": row.row_id,
+                        },
+                        source_dataset=f"sqlite:{settings.dataset_version}",
+                    )
+                )
 
                 if existing and existing.content_fingerprint == fingerprint:
                     skipped += 1

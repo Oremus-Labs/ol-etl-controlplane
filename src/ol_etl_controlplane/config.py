@@ -141,6 +141,34 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Vatican fetch policy (speed vs completeness trade-offs)
+    vatican_http_max_attempts: int = Field(
+        default=1,
+        alias="VATICAN_HTTP_MAX_ATTEMPTS",
+        description=(
+            "Max HTTP GET attempts per Vatican URL in the bulk crawl. "
+            "Keep this low to avoid a single slow URL stalling a partition; "
+            "use the refetch workflow for retries."
+        ),
+    )
+    vatican_http_connect_timeout_s: float = Field(
+        default=10.0,
+        alias="VATICAN_HTTP_CONNECT_TIMEOUT_S",
+    )
+    vatican_http_read_timeout_s: float = Field(
+        default=20.0,
+        alias="VATICAN_HTTP_READ_TIMEOUT_S",
+        description="Base read timeout per attempt (multiplied by attempt number).",
+    )
+    vatican_http_max_read_timeout_s: float = Field(
+        default=60.0,
+        alias="VATICAN_HTTP_MAX_READ_TIMEOUT_S",
+    )
+    vatican_http_retry_sleep_s: float = Field(
+        default=1.5,
+        alias="VATICAN_HTTP_RETRY_SLEEP_S",
+    )
+
 
 def load_settings() -> Settings:
     return Settings()

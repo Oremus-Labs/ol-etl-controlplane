@@ -58,14 +58,8 @@ def newadvent_web_sync_flow() -> dict[str, int]:
 
     proxy_pool = _parse_csv(settings.vpn_http_proxy_pool)
     vpn_guard = VpnRotationGuard(
-        gluetun=(
-            None
-            if proxy_pool
-            else GluetunHttpControlClient(
-                GluetunConfig(
-                    control_url=settings.gluetun_control_url, api_key=settings.gluetun_api_key
-                )
-            )
+        gluetun=GluetunHttpControlClient(
+            GluetunConfig(control_url=settings.gluetun_control_url, api_key=settings.gluetun_api_key)
         ),
         proxy_pool=proxy_pool,
         rotate_every_n_requests=settings.vpn_rotate_every_n_requests,
