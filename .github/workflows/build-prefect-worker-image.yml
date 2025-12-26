@@ -21,6 +21,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -36,6 +41,7 @@ jobs:
         with:
           context: .
           file: docker/prefect-worker/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
             PREFECT_IMAGE=prefecthq/prefect:3.6.7-python3.12
@@ -43,4 +49,3 @@ jobs:
           tags: |
             ghcr.io/oremus-labs/prefect-worker:prefect-3.6.7-py3.12-${{ github.sha }}
             ghcr.io/oremus-labs/prefect-worker:prefect-3.6.7-py3.12-main
-
