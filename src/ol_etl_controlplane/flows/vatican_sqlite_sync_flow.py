@@ -59,12 +59,18 @@ def vatican_sqlite_sync_flow(
     if not settings.s3_access_key or not settings.s3_secret_key:
         raise RuntimeError("Missing S3_ACCESS_KEY / S3_SECRET_KEY")
 
+    proxy_pool = _parse_csv(settings.vpn_http_proxy_pool)
     vpn_guard = VpnRotationGuard(
-        gluetun=GluetunHttpControlClient(
-            GluetunConfig(
-                control_url=settings.gluetun_control_url, api_key=settings.gluetun_api_key
+        gluetun=(
+            None
+            if proxy_pool
+            else GluetunHttpControlClient(
+                GluetunConfig(
+                    control_url=settings.gluetun_control_url, api_key=settings.gluetun_api_key
+                )
             )
         ),
+        proxy_pool=proxy_pool,
         rotate_every_n_requests=settings.vpn_rotate_every_n_requests,
         require_vpn_for_external=settings.vpn_required,
         ensure_timeout_s=settings.vpn_ensure_timeout_s,

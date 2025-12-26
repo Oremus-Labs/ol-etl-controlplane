@@ -131,6 +131,15 @@ class Settings(BaseSettings):
     )
     vpn_ensure_timeout_s: float = Field(default=90.0, alias="VPN_ENSURE_TIMEOUT_S")
     vpn_rotate_cooldown_s: float = Field(default=2.0, alias="VPN_ROTATE_COOLDOWN_S")
+    vpn_http_proxy_pool: str | None = Field(
+        default=None,
+        alias="VPN_HTTP_PROXY_POOL",
+        description=(
+            "Comma-separated HTTP CONNECT proxies for external crawls. "
+            "When set, flows rotate between these proxies (instead of restarting OpenVPN). "
+            "Example: http://gluetun-egress-nl.research.svc.cluster.local:8888,http://gluetun-egress-de.research.svc.cluster.local:8888"
+        ),
+    )
 
 
 def load_settings() -> Settings:
