@@ -34,6 +34,18 @@ def _parse_csv(value: str | None) -> list[str] | None:
     return items or None
 
 
+def _parse_prefixes(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [v.strip() for v in value.split(",") if v.strip()]
+
+
+def _is_excluded_url(url: str, *, exclude_urls: set[str], exclude_prefixes: list[str]) -> bool:
+    if url in exclude_urls:
+        return True
+    return any(url.startswith(prefix) for prefix in exclude_prefixes)
+
+
 @flow(name="vatican_sqlite_reconcile_missing_flow")
 def vatican_sqlite_reconcile_missing_flow(
     *,
@@ -92,12 +104,15 @@ def vatican_sqlite_reconcile_missing_flow(
         for u in (settings.vatican_sqlite_exclude_urls or "").split(",")
         if u.strip()
     }
+    exclude_prefixes = _parse_prefixes(settings.vatican_sqlite_exclude_prefixes)
 
     urls_from_sqlite = []
     for row in rows:
         if not row.url:
             continue
-        if row.url in exclude_urls:
+        if _is_excluded_url(
+            row.url, exclude_urls=exclude_urls, exclude_prefixes=exclude_prefixes
+        ):
             continue
         urls_from_sqlite.append(row.url)
 
@@ -129,6 +144,14 @@ def vatican_sqlite_reconcile_missing_flow(
                 """
             ).fetchall()
             missing_raw_urls = [r[0] for r in raw_missing_rows if r[0]]
+            if exclude_urls or exclude_prefixes:
+                missing_raw_urls = [
+                    url
+                    for url in missing_raw_urls
+                    if not _is_excluded_url(
+                        url, exclude_urls=exclude_urls, exclude_prefixes=exclude_prefixes
+                    )
+                ]
 
     # De-dupe while preserving order (missing first).
     seen: set[str] = set()

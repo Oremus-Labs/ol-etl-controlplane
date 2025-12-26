@@ -405,3 +405,29 @@ resource "prefect_deployment" "metadata_backfill" {
 
   version = "v1"
 }
+
+resource "prefect_deployment" "purge_url_prefix" {
+  name    = "purge-url-prefix"
+  flow_id = prefect_flow.purge_url_prefix.id
+
+  # Day-2 operator tool.
+  paused = true
+
+  entrypoint = "ol_etl_controlplane.flows.purge_url_prefix_flow.purge_url_prefix_flow"
+
+  work_pool_name  = prefect_work_pool.general.name
+  work_queue_name = "default"
+
+  enforce_parameter_schema = false
+  parameter_openapi_schema = jsonencode({
+    type = "object"
+    properties = {
+      bad_url_prefixes = { type = "array", items = { type = "string" } }
+      source           = { type = "string" }
+      dry_run          = { type = "boolean" }
+    }
+    additionalProperties = true
+  })
+
+  version = "v1"
+}

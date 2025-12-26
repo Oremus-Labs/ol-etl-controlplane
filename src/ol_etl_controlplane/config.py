@@ -74,6 +74,11 @@ class Settings(BaseSettings):
         alias="VATICAN_SQLITE_EXCLUDE_URLS",
         description="Comma-separated exact URLs to skip during Vatican sqlite sync.",
     )
+    vatican_sqlite_exclude_prefixes: str | None = Field(
+        default=None,
+        alias="VATICAN_SQLITE_EXCLUDE_PREFIXES",
+        description="Comma-separated URL prefixes to skip during Vatican sqlite sync.",
+    )
     newadvent_zip_max_entries: int = Field(default=50, alias="NEWADVENT_ZIP_MAX_ENTRIES")
     newadvent_zip_include_prefixes: str | None = Field(
         default=None,
@@ -167,6 +172,21 @@ class Settings(BaseSettings):
     vatican_http_retry_sleep_s: float = Field(
         default=1.5,
         alias="VATICAN_HTTP_RETRY_SLEEP_S",
+    )
+    vatican_http_direct_on_403: bool = Field(
+        default=True,
+        alias="VATICAN_HTTP_DIRECT_ON_403",
+        description=(
+            "If true, attempt a direct (non-VPN/proxy) fetch after a 403 for non-Vatican hosts."
+        ),
+    )
+    vatican_http_direct_exclude_domains: str | None = Field(
+        default="vatican.va",
+        alias="VATICAN_HTTP_DIRECT_EXCLUDE_DOMAINS",
+        description=(
+            "Comma-separated domain suffixes that should NOT bypass VPN on 403 "
+            "(e.g. vatican.va)."
+        ),
     )
 
 

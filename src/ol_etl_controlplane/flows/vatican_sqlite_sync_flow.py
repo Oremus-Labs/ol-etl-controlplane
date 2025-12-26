@@ -44,6 +44,38 @@ def _parse_csv(value: str | None) -> list[str] | None:
     return items or None
 
 
+def _parse_prefixes(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [v.strip() for v in value.split(",") if v.strip()]
+
+
+def _host_matches_suffix(host: str, suffixes: list[str]) -> bool:
+    for suffix in suffixes:
+        if host == suffix:
+            return True
+        if suffix and host.endswith(f".{suffix}"):
+            return True
+    return False
+
+
+def _is_excluded_url(url: str, *, exclude_urls: set[str], exclude_prefixes: list[str]) -> bool:
+    if url in exclude_urls:
+        return True
+    return any(url.startswith(prefix) for prefix in exclude_prefixes)
+
+
+def _can_bypass_vpn_on_403(url: str, settings) -> bool:  # noqa: ANN001
+    if not settings.vatican_http_direct_on_403:
+        return False
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return False
+    exclude_suffixes = _parse_csv(settings.vatican_http_direct_exclude_domains) or []
+    return not _host_matches_suffix(host, exclude_suffixes)
+
+
 @flow(name="vatican_sqlite_sync_flow")
 def vatican_sqlite_sync_flow(
     partition_index: int | None = None,
@@ -131,12 +163,22 @@ def vatican_sqlite_sync_flow(
         for u in (settings.vatican_sqlite_exclude_urls or "").split(",")
         if u.strip()
     }
+    exclude_prefixes = _parse_prefixes(settings.vatican_sqlite_exclude_prefixes)
     if exclude_urls:
         before = len(rows)
         rows = [r for r in rows if r.url not in exclude_urls]
         logger.info(
             "Vatican SQLite exclude URLs enabled: excluded=%s removed=%s remaining=%s",
             len(exclude_urls),
+            before - len(rows),
+            len(rows),
+        )
+    if exclude_prefixes:
+        before = len(rows)
+        rows = [r for r in rows if not _is_excluded_url(r.url or "", exclude_urls=set(), exclude_prefixes=exclude_prefixes)]
+        logger.info(
+            "Vatican SQLite exclude prefixes enabled: excluded=%s removed=%s remaining=%s",
+            len(exclude_prefixes),
             before - len(rows),
             len(rows),
         )
@@ -160,9 +202,13 @@ def vatican_sqlite_sync_flow(
 
     default_timeout = _timeout_for_attempt(2)
     headers = {
-        "User-Agent": "ol-etl-pipeline/1.0 (+https://oremuslabs.app)",
+        "User-Agent": (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        ),
         "Accept": "text/html,application/xhtml+xml,application/pdf,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9,it;q=0.7,fr;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br",
         "Connection": "keep-alive",
     }
 
@@ -178,6 +224,14 @@ def vatican_sqlite_sync_flow(
         )
 
     client = _new_client()
+    direct_client = httpx.Client(
+        timeout=default_timeout,
+        follow_redirects=True,
+        headers=headers,
+        http2=False,
+        limits=httpx.Limits(max_connections=10, max_keepalive_connections=0),
+        trust_env=False,
+    )
     try:
         # Reuse a single Postgres connection for the whole flow run.
         # Opening a new connection per row quickly exhausts Postgres max_connections
@@ -278,6 +332,36 @@ def vatican_sqlite_sync_flow(
                         # Avoid hammering endpoints/proxy after a disconnect/timeout.
                         time.sleep(min(10.0, float(settings.vatican_http_retry_sleep_s) * attempt))
                         continue
+
+                    if r.status_code == 403 and _can_bypass_vpn_on_403(source_uri, settings):
+                        logger.warning(
+                            "Fetch got 403 url=%s; trying direct (no VPN/proxy)",
+                            source_uri,
+                        )
+                        try:
+                            direct = direct_client.get(
+                                source_uri, timeout=_timeout_for_attempt(attempt)
+                            )
+                        except httpx.RequestError as e:
+                            logger.warning(
+                                "Direct fetch failed (attempt %s/%s) url=%s err=%s",
+                                attempt,
+                                max_attempts,
+                                source_uri,
+                                repr(e),
+                            )
+                            direct = None
+                        if direct and direct.status_code < 400:
+                            r = direct
+                            break
+                        if direct is not None:
+                            logger.warning(
+                                "Direct fetch got %s (attempt %s/%s) url=%s",
+                                direct.status_code,
+                                attempt,
+                                max_attempts,
+                                source_uri,
+                            )
 
                     if r.status_code in {403, 429, 500, 502, 503, 504}:
                         logger.warning(
@@ -421,6 +505,7 @@ def vatican_sqlite_sync_flow(
                     )
     finally:
         client.close()
+        direct_client.close()
 
     logger.info(
         "Vatican SQLite sync complete: created=%s skipped=%s failed=%s",

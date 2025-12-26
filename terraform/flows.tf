@@ -65,3 +65,7 @@ resource "prefect_flow" "reconcile_index" {
 resource "prefect_flow" "metadata_backfill" {
   name = "metadata_backfill_flow"
 }
+
+resource "prefect_flow" "purge_url_prefix" {
+  name = "purge_url_prefix_flow"
+}
