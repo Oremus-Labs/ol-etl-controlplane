@@ -44,6 +44,16 @@ def _parse_csv(value: str | None) -> list[str] | None:
     return items or None
 
 
+def _headers_for_url(url: str, base_headers: dict[str, str]) -> dict[str, str]:
+    headers = dict(base_headers)
+    parsed = urlparse(url)
+    if parsed.scheme and parsed.netloc:
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        headers["Referer"] = f"{origin}/"
+        headers["Origin"] = origin
+    return headers
+
+
 def _parse_prefixes(value: str | None) -> list[str]:
     if not value:
         return []
@@ -316,7 +326,11 @@ def vatican_sqlite_sync_flow(
                 max_attempts = max(1, int(settings.vatican_http_max_attempts))
                 for attempt in range(1, max_attempts + 1):
                     try:
-                        r = client.get(source_uri, timeout=_timeout_for_attempt(attempt))
+                        r = client.get(
+                            source_uri,
+                            timeout=_timeout_for_attempt(attempt),
+                            headers=_headers_for_url(source_uri, headers),
+                        )
                     except httpx.RequestError as e:
                         logger.warning(
                             "Fetch failed (attempt %s/%s) url=%s err=%s",
@@ -340,7 +354,9 @@ def vatican_sqlite_sync_flow(
                         )
                         try:
                             direct = direct_client.get(
-                                source_uri, timeout=_timeout_for_attempt(attempt)
+                                source_uri,
+                                timeout=_timeout_for_attempt(attempt),
+                                headers=_headers_for_url(source_uri, headers),
                             )
                         except httpx.RequestError as e:
                             logger.warning(
