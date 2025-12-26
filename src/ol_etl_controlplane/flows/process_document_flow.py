@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import hashlib
 from uuid import uuid4
 
 from ol_rag_pipeline_core.db import PostgresConfig, connect
@@ -40,6 +41,22 @@ def _filename_from_s3_uri(uri: str) -> str | None:
     return name or None
 
 
+def _parse_csv(value: str | None) -> list[str] | None:
+    if not value:
+        return None
+    items = [v.strip() for v in value.split(",") if v.strip()]
+    return items or None
+
+
+def _pick_index_deployment(document_id: str, fqns: list[str] | None) -> str:
+    if not fqns:
+        return "index_document_flow/index-document"
+    if len(fqns) == 1:
+        return fqns[0]
+    digest = hashlib.sha256(document_id.encode("utf-8")).hexdigest()
+    return fqns[int(digest, 16) % len(fqns)]
+
+
 @flow(name="process_document_flow")
 def process_document_flow(
     document_id: str,
@@ -62,6 +79,7 @@ def process_document_flow(
 
     pv = pipeline_version or settings.pipeline_version
     correlation_id = event_id or str(uuid4())
+    index_deployment_fqns = _parse_csv(settings.index_deployment_fqns)
 
     if not settings.s3_access_key or not settings.s3_secret_key:
         raise RuntimeError("Missing S3_ACCESS_KEY / S3_SECRET_KEY")
@@ -292,7 +310,7 @@ def process_document_flow(
         # Do NOT run indexing inline: it bypasses pool-index and can overwhelm embeddings/Qdrant.
         # Instead, enqueue the index deployment (which runs on pool-index with bounded concurrency).
         fr = run_deployment(
-            name="index_document_flow/index-document",
+            name=_pick_index_deployment(document_id, index_deployment_fqns),
             parameters={
                 "document_id": document_id,
                 "pipeline_version": pv,

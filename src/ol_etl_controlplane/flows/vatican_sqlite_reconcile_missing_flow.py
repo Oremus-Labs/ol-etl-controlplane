@@ -70,6 +70,9 @@ def vatican_sqlite_reconcile_missing_flow(
     batch_size = max(1, int(batch_size))
     max_urls = max(0, int(max_urls))
     dry_run = bool(dry_run)
+    refetch_deployment_fqns = _parse_csv(settings.vatican_sqlite_refetch_deployment_fqns) or [
+        refetch_deployment_fqn
+    ]
 
     if not settings.s3_access_key or not settings.s3_secret_key:
         raise RuntimeError("Missing S3_ACCESS_KEY / S3_SECRET_KEY")
@@ -184,16 +187,17 @@ def vatican_sqlite_reconcile_missing_flow(
             "batch_size": batch_size,
             "max_urls": max_urls,
             "publish_events": publish_events,
-            "refetch_deployment_fqn": refetch_deployment_fqn,
+            "refetch_deployment_fqns": refetch_deployment_fqns,
             "candidate_urls_sample": candidate_urls[: min(20, len(candidate_urls))],
         }
 
     enqueued = 0
     flow_run_ids: list[str] = []
-    for i in range(0, len(candidate_urls), batch_size):
+    for idx, i in enumerate(range(0, len(candidate_urls), batch_size)):
         batch = candidate_urls[i : i + batch_size]
+        selected_fqn = refetch_deployment_fqns[idx % len(refetch_deployment_fqns)]
         fr = run_deployment(
-            name=refetch_deployment_fqn,
+            name=selected_fqn,
             parameters={"urls": batch, "publish_events": publish_events},
         )
         flow_run_id = getattr(fr, "id", fr)
@@ -209,6 +213,6 @@ def vatican_sqlite_reconcile_missing_flow(
         "batch_size": batch_size,
         "max_urls": max_urls,
         "publish_events": publish_events,
-        "refetch_deployment_fqn": refetch_deployment_fqn,
+        "refetch_deployment_fqns": refetch_deployment_fqns,
         "flow_run_ids": flow_run_ids,
     }

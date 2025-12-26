@@ -11,6 +11,13 @@ class Settings(BaseSettings):
     dataset_version: str = Field(alias="DATASET_VERSION")
 
     prefect_api_url: str = Field(alias="PREFECT_API_URL")
+    index_deployment_fqns: str | None = Field(default=None, alias="INDEX_DEPLOYMENT_FQNS")
+    vatican_sqlite_sync_deployment_fqns: str | None = Field(
+        default=None, alias="VATICAN_SQLITE_SYNC_DEPLOYMENT_FQNS"
+    )
+    vatican_sqlite_refetch_deployment_fqns: str | None = Field(
+        default=None, alias="VATICAN_SQLITE_REFETCH_DEPLOYMENT_FQNS"
+    )
 
     pg_dsn: str | None = Field(default=None, alias="PG_DSN")
     postgres_host: str | None = Field(default=None, alias="POSTGRES_HOST")

@@ -57,7 +57,9 @@ resource "prefect_deployment" "newadvent_web_sync" {
 }
 
 resource "prefect_deployment" "vatican_sqlite_sync" {
-  name    = "vatican-sqlite-sync"
+  for_each = local.crawl_sync_deployments
+
+  name    = each.key
   flow_id = prefect_flow.vatican_sqlite_sync.id
 
   paused = false
@@ -66,7 +68,7 @@ resource "prefect_deployment" "vatican_sqlite_sync" {
 
   # Crawl pool has VPN egress and is tuned for long-running external fetches.
   work_pool_name  = prefect_work_pool.crawl.name
-  work_queue_name = "default"
+  work_queue_name = each.value
 
   enforce_parameter_schema = false
   parameter_openapi_schema = jsonencode({
@@ -112,7 +114,9 @@ resource "prefect_deployment" "vatican_sqlite_enqueue" {
 }
 
 resource "prefect_deployment" "vatican_sqlite_refetch_batch" {
-  name    = "vatican-sqlite-refetch-batch"
+  for_each = local.crawl_refetch_deployments
+
+  name    = each.key
   flow_id = prefect_flow.vatican_sqlite_refetch_batch.id
 
   paused = false
@@ -121,7 +125,7 @@ resource "prefect_deployment" "vatican_sqlite_refetch_batch" {
 
   # Needs VPN egress (external fetch).
   work_pool_name  = prefect_work_pool.crawl.name
-  work_queue_name = "default"
+  work_queue_name = each.value
 
   enforce_parameter_schema = false
   parameter_openapi_schema = jsonencode({
@@ -182,7 +186,9 @@ resource "prefect_deployment" "newadvent_zip_sync" {
 }
 
 resource "prefect_deployment" "process_document" {
-  name    = "process-document"
+  for_each = local.process_deployments
+
+  name    = each.key
   flow_id = prefect_flow.process_document.id
 
   paused = false
@@ -190,7 +196,7 @@ resource "prefect_deployment" "process_document" {
   entrypoint = "ol_etl_controlplane.flows.process_document_flow.process_document_flow"
 
   work_pool_name  = prefect_work_pool.general.name
-  work_queue_name = "default"
+  work_queue_name = each.value
 
   # Prefect Terraform provider cannot introspect Python signatures to build parameter schemas.
   # Define a minimal schema so CLI/API callers can pass parameters without Prefect rejecting them.
@@ -213,8 +219,38 @@ resource "prefect_deployment" "process_document" {
   version = "v1"
 }
 
+locals {
+  crawl_sync_deployments = {
+    "vatican-sqlite-sync"   = "default"
+    "vatican-sqlite-sync-0" = "crawl-0"
+    "vatican-sqlite-sync-1" = "crawl-1"
+    "vatican-sqlite-sync-2" = "crawl-2"
+    "vatican-sqlite-sync-3" = "crawl-3"
+  }
+
+  crawl_refetch_deployments = {
+    "vatican-sqlite-refetch-batch"   = "default"
+    "vatican-sqlite-refetch-batch-0" = "crawl-0"
+    "vatican-sqlite-refetch-batch-1" = "crawl-1"
+    "vatican-sqlite-refetch-batch-2" = "crawl-2"
+    "vatican-sqlite-refetch-batch-3" = "crawl-3"
+  }
+
+  process_deployments = {
+    "process-document"   = "default"
+    "process-document-0" = "general-0"
+    "process-document-1" = "general-1"
+    "process-document-2" = "general-2"
+    "process-document-3" = "general-3"
+  }
+
+  index_deployment_queues = ["index-0", "index-1", "index-2", "index-3"]
+}
+
 resource "prefect_deployment" "index_document" {
-  name    = "index-document"
+  for_each = { for idx, queue in local.index_deployment_queues : idx => queue }
+
+  name    = "index-document-${each.key}"
   flow_id = prefect_flow.index_document.id
 
   paused = false
@@ -224,7 +260,7 @@ resource "prefect_deployment" "index_document" {
   # Indexing is heavy (embeddings + Qdrant writes). Run it in a dedicated pool to
   # keep pool-general responsive and to cap concurrent embedding load.
   work_pool_name  = prefect_work_pool.index.name
-  work_queue_name = "default"
+  work_queue_name = each.value
 
   # See note above.
   enforce_parameter_schema = false
