@@ -257,8 +257,14 @@ def index_document_flow(
                     "payload": payload,
                 }
             )
-
-        qdrant.upsert_points(collection=settings.qdrant_collection, points=points)
+        batch_size = settings.qdrant_upsert_batch_size
+        if batch_size <= 0:
+            batch_size = len(points)
+        for i in range(0, len(points), batch_size):
+            qdrant.upsert_points(
+                collection=settings.qdrant_collection,
+                points=points[i : i + batch_size],
+            )
 
         # Preserve `is_scanned`: it describes the original input, not whether OCR has completed.
         docs.set_processing_state(

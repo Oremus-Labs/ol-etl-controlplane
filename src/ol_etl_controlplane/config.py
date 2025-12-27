@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     qdrant_url: str = Field(alias="QDRANT_URL")
     qdrant_api_key: str | None = Field(default=None, alias="QDRANT_API_KEY")
     qdrant_collection: str = Field(default="library_chunks_v1", alias="QDRANT_COLLECTION")
+    qdrant_upsert_batch_size: int = Field(default=512, alias="QDRANT_UPSERT_BATCH_SIZE")
 
     embedding_base_url: str | None = Field(default=None, alias="EMBEDDING_BASE_URL")
     embedding_api_key: str | None = Field(default=None, alias="EMBEDDING_API_KEY")
