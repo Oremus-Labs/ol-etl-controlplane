@@ -5,3 +5,9 @@ resource "prefect_deployment_schedule" "contracts_daily" {
   active        = false
 }
 
+resource "prefect_deployment_schedule" "process_index_backfill_enqueue_15m" {
+  deployment_id = prefect_deployment.process_index_backfill_enqueue.id
+  cron          = "*/15 * * * *"
+  timezone      = "UTC"
+  active        = true
+}
