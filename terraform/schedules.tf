@@ -11,7 +11,7 @@ resource "prefect_deployment_schedule" "process_index_backfill_enqueue_15m" {
   timezone      = "UTC"
   active        = true
   parameters = jsonencode({
-    num_partitions          = 20
+    num_partitions          = 10
     min_updated_age_minutes = 15
     batch_size              = 200
   })

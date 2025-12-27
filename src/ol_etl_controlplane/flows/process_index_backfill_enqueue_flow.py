@@ -80,7 +80,12 @@ def process_index_backfill_enqueue_flow(
             params["max_docs"] = int(max_docs)
 
         selected_fqn = _pick_deployment_fqn(partition_index, deployment_fqns)
-        fr = run_deployment(name=selected_fqn, parameters=params)
+        fr = run_deployment(
+            name=selected_fqn,
+            parameters=params,
+            timeout=0,
+            as_subflow=False,
+        )
         flow_run_id = getattr(fr, "id", fr)
         logger.info(
             "Enqueued process/index backfill: partition=%s/%s flow_run_id=%s",

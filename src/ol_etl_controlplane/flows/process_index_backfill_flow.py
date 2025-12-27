@@ -130,7 +130,12 @@ def _enqueue_documents(
                 created += 1
                 continue
 
-            fr = run_deployment(name=deployment, parameters=params)
+            fr = run_deployment(
+                name=deployment,
+                parameters=params,
+                timeout=0,
+                as_subflow=False,
+            )
             flow_run_id = getattr(fr, "id", fr)
             logger.info("Enqueued %s via %s flow_run_id=%s", doc.document_id, deployment, flow_run_id)
             created += 1
