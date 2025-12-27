@@ -239,9 +239,14 @@ locals {
     "process-document-1" = "general-1"
     "process-document-2" = "general-2"
     "process-document-3" = "general-3"
+    "process-document-4" = "general-4"
+    "process-document-5" = "general-5"
+    "process-document-6" = "general-6"
+    "process-document-7" = "general-7"
+    "process-document-8" = "general-8"
   }
 
-  index_deployment_queues = ["index-0", "index-1", "index-2", "index-3", "index-4", "index-5", "index-6", "index-7"]
+  index_deployment_queues = ["index-0", "index-1", "index-2", "index-3", "index-4", "index-5", "index-6", "index-7", "index-8"]
 }
 
 resource "prefect_deployment" "index_document" {
