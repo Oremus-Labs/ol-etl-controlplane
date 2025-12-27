@@ -9,7 +9,7 @@ resource "prefect_deployment" "contracts" {
   entrypoint = "src/ol_etl_controlplane/flows/contracts_flow.py:contracts_flow"
 
   work_pool_name  = prefect_work_pool.general.name
-  work_queue_name = "default"
+  work_queue_name = "general-0"
 
   version = "v1"
 }
@@ -23,7 +23,7 @@ resource "prefect_deployment" "router_smoke" {
   entrypoint = "ol_etl_controlplane.flows.router_smoke_flow.router_smoke_flow"
 
   work_pool_name  = prefect_work_pool.general.name
-  work_queue_name = "default"
+  work_queue_name = "general-0"
 
   version = "v1"
 }
@@ -37,7 +37,7 @@ resource "prefect_deployment" "nextcloud_sync" {
   entrypoint = "ol_etl_controlplane.flows.nextcloud_sync_flow.nextcloud_sync_flow"
 
   work_pool_name  = prefect_work_pool.general.name
-  work_queue_name = "default"
+  work_queue_name = "general-1"
 
   version = "v1"
 }
@@ -51,7 +51,7 @@ resource "prefect_deployment" "newadvent_web_sync" {
   entrypoint = "ol_etl_controlplane.flows.newadvent_web_sync_flow.newadvent_web_sync_flow"
 
   work_pool_name  = prefect_work_pool.general.name
-  work_queue_name = "default"
+  work_queue_name = "general-1"
 
   version = "v1"
 }
@@ -95,7 +95,7 @@ resource "prefect_deployment" "vatican_sqlite_enqueue" {
   entrypoint = "ol_etl_controlplane.flows.vatican_sqlite_enqueue_flow.vatican_sqlite_enqueue_flow"
 
   work_pool_name  = prefect_work_pool.general.name
-  work_queue_name = "default"
+  work_queue_name = "general-2"
 
   enforce_parameter_schema = false
   parameter_openapi_schema = jsonencode({
@@ -152,7 +152,7 @@ resource "prefect_deployment" "vatican_sqlite_reconcile_missing" {
 
   # This only computes gaps and enqueues refetch batches (no external fetch).
   work_pool_name  = prefect_work_pool.general.name
-  work_queue_name = "default"
+  work_queue_name = "general-2"
 
   enforce_parameter_schema = false
   parameter_openapi_schema = jsonencode({
@@ -180,7 +180,7 @@ resource "prefect_deployment" "newadvent_zip_sync" {
   entrypoint = "ol_etl_controlplane.flows.newadvent_zip_sync_flow.newadvent_zip_sync_flow"
 
   work_pool_name  = prefect_work_pool.general.name
-  work_queue_name = "default"
+  work_queue_name = "general-1"
 
   version = "v1"
 }
@@ -221,7 +221,6 @@ resource "prefect_deployment" "process_document" {
 
 locals {
   crawl_sync_deployments = {
-    "vatican-sqlite-sync"   = "default"
     "vatican-sqlite-sync-0" = "crawl-0"
     "vatican-sqlite-sync-1" = "crawl-1"
     "vatican-sqlite-sync-2" = "crawl-2"
@@ -229,7 +228,6 @@ locals {
   }
 
   crawl_refetch_deployments = {
-    "vatican-sqlite-refetch-batch"   = "default"
     "vatican-sqlite-refetch-batch-0" = "crawl-0"
     "vatican-sqlite-refetch-batch-1" = "crawl-1"
     "vatican-sqlite-refetch-batch-2" = "crawl-2"
@@ -237,7 +235,6 @@ locals {
   }
 
   process_deployments = {
-    "process-document"   = "default"
     "process-document-0" = "general-0"
     "process-document-1" = "general-1"
     "process-document-2" = "general-2"
@@ -321,7 +318,7 @@ resource "prefect_deployment" "eval" {
   entrypoint = "ol_etl_controlplane.flows.eval_flow.eval_flow"
 
   work_pool_name  = prefect_work_pool.general.name
-  work_queue_name = "default"
+  work_queue_name = "general-3"
 
   version = "v1"
 }
@@ -336,7 +333,7 @@ resource "prefect_deployment" "enrich_vectors" {
   entrypoint = "ol_etl_controlplane.flows.enrich_vectors_flow.enrich_vectors_flow"
 
   work_pool_name  = prefect_work_pool.general.name
-  work_queue_name = "default"
+  work_queue_name = "general-3"
 
   enforce_parameter_schema = false
   parameter_openapi_schema = jsonencode({
@@ -366,7 +363,7 @@ resource "prefect_deployment" "quality_audit" {
   entrypoint = "ol_etl_controlplane.flows.quality_audit_flow.quality_audit_flow"
 
   work_pool_name  = prefect_work_pool.general.name
-  work_queue_name = "default"
+  work_queue_name = "general-3"
 
   enforce_parameter_schema = false
   parameter_openapi_schema = jsonencode({
@@ -395,7 +392,7 @@ resource "prefect_deployment" "reconcile_index" {
   entrypoint = "ol_etl_controlplane.flows.reconcile_index_flow.reconcile_index_flow"
 
   work_pool_name  = prefect_work_pool.general.name
-  work_queue_name = "default"
+  work_queue_name = "general-3"
 
   enforce_parameter_schema = false
   parameter_openapi_schema = jsonencode({
@@ -426,7 +423,7 @@ resource "prefect_deployment" "metadata_backfill" {
   entrypoint = "ol_etl_controlplane.flows.metadata_backfill_flow.metadata_backfill_flow"
 
   work_pool_name  = prefect_work_pool.general.name
-  work_queue_name = "default"
+  work_queue_name = "general-2"
 
   enforce_parameter_schema = false
   parameter_openapi_schema = jsonencode({
@@ -452,7 +449,7 @@ resource "prefect_deployment" "purge_url_prefix" {
   entrypoint = "ol_etl_controlplane.flows.purge_url_prefix_flow.purge_url_prefix_flow"
 
   work_pool_name  = prefect_work_pool.general.name
-  work_queue_name = "default"
+  work_queue_name = "general-2"
 
   enforce_parameter_schema = false
   parameter_openapi_schema = jsonencode({
