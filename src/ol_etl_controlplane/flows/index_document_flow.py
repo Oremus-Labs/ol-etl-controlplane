@@ -32,7 +32,7 @@ def _pg_dsn_from_env(settings) -> str:  # noqa: ANN001
     return cfg.build_dsn()
 
 
-@flow(name="index_document_flow")
+@flow(name="index_document_flow", retries=3, retry_delay_seconds=60)
 def index_document_flow(
     document_id: str,
     pipeline_version: str | None = None,

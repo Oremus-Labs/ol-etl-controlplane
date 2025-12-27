@@ -56,7 +56,12 @@ def _in_partition(document_id: str, partition_index: int, num_partitions: int) -
     return int(digest, 16) % num_partitions == partition_index
 
 
-def _fetch_documents(conn, statuses: list[str], source: str | None) -> list[DocumentWork]:
+def _fetch_documents(
+    conn,
+    statuses: list[str],
+    source: str | None,
+    min_updated_age_minutes: int | None,
+) -> list[DocumentWork]:
     if not statuses:
         return []
     placeholders = ", ".join(["%s"] * len(statuses))
@@ -69,6 +74,9 @@ def _fetch_documents(conn, statuses: list[str], source: str | None) -> list[Docu
     if source:
         query += " and source = %s"
         params.append(source)
+    if min_updated_age_minutes and min_updated_age_minutes > 0:
+        query += " and updated_at <= now() - (%s || ' minutes')::interval"
+        params.append(int(min_updated_age_minutes))
     query += " order by updated_at asc"
     rows = conn.execute(query, params).fetchall()
     return [
@@ -132,7 +140,7 @@ def _enqueue_documents(
     return created
 
 
-@flow(name="process_index_backfill_flow")
+@flow(name="process_index_backfill_flow", retries=2, retry_delay_seconds=60)
 def process_index_backfill_flow(
     *,
     source: str | None = "vatican_sqlite",
@@ -140,6 +148,7 @@ def process_index_backfill_flow(
     index_statuses_csv: str = "extracted",
     partition_index: int = 0,
     num_partitions: int = 1,
+    min_updated_age_minutes: int | None = 15,
     max_docs: int | None = None,
     batch_size: int = 200,
     rate_sleep_s: float = 0.0,
@@ -166,8 +175,10 @@ def process_index_backfill_flow(
     pipeline_version = settings.pipeline_version
 
     with connect(dsn, schema="public") as conn:
-        process_docs = _fetch_documents(conn, process_statuses, source)
-        index_docs = _fetch_documents(conn, index_statuses, source)
+        process_docs = _fetch_documents(
+            conn, process_statuses, source, min_updated_age_minutes
+        )
+        index_docs = _fetch_documents(conn, index_statuses, source, min_updated_age_minutes)
 
     process_docs = [
         doc for doc in process_docs if _in_partition(doc.document_id, partition_index, num_partitions)
@@ -181,12 +192,13 @@ def process_index_backfill_flow(
         index_docs = index_docs[: max_docs]
 
     logger.info(
-        "Backfill partition %s/%s: process=%s index=%s dry_run=%s",
+        "Backfill partition %s/%s: process=%s index=%s dry_run=%s min_age_minutes=%s",
         partition_index,
         num_partitions,
         len(process_docs),
         len(index_docs),
         dry_run,
+        min_updated_age_minutes,
     )
 
     process_created = _enqueue_documents(
@@ -219,6 +231,7 @@ def process_index_backfill_flow(
         "source": source,
         "partition_index": partition_index,
         "num_partitions": num_partitions,
+        "min_updated_age_minutes": min_updated_age_minutes,
         "process_enqueued": process_created,
         "index_enqueued": index_created,
         "dry_run": dry_run,

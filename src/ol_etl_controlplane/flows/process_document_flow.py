@@ -57,7 +57,7 @@ def _pick_index_deployment(document_id: str, fqns: list[str] | None) -> str:
     return fqns[int(digest, 16) % len(fqns)]
 
 
-@flow(name="process_document_flow")
+@flow(name="process_document_flow", retries=3, retry_delay_seconds=60)
 def process_document_flow(
     document_id: str,
     pipeline_version: str | None = None,

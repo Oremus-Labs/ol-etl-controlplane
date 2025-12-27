@@ -19,7 +19,7 @@ def _pick_deployment_fqn(partition_index: int, fqns: list[str]) -> str:
     return fqns[partition_index % len(fqns)]
 
 
-@flow(name="process_index_backfill_enqueue_flow")
+@flow(name="process_index_backfill_enqueue_flow", retries=2, retry_delay_seconds=60)
 def process_index_backfill_enqueue_flow(
     *,
     num_partitions: int = 10,
@@ -29,6 +29,7 @@ def process_index_backfill_enqueue_flow(
     source: str | None = "vatican_sqlite",
     process_statuses_csv: str = "discovered",
     index_statuses_csv: str = "extracted",
+    min_updated_age_minutes: int | None = 15,
     max_docs: int | None = None,
     batch_size: int = 200,
     rate_sleep_s: float = 0.0,
@@ -69,6 +70,7 @@ def process_index_backfill_enqueue_flow(
             "source": source,
             "process_statuses_csv": process_statuses_csv,
             "index_statuses_csv": index_statuses_csv,
+            "min_updated_age_minutes": min_updated_age_minutes,
             "batch_size": batch_size,
             "rate_sleep_s": rate_sleep_s,
             "dry_run": dry_run,
