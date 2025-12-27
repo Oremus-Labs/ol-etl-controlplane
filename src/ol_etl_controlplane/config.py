@@ -12,6 +12,11 @@ class Settings(BaseSettings):
 
     prefect_api_url: str = Field(alias="PREFECT_API_URL")
     index_deployment_fqns: str | None = Field(default=None, alias="INDEX_DEPLOYMENT_FQNS")
+    process_deployment_fqns: str | None = Field(default=None, alias="PROCESS_DEPLOYMENT_FQNS")
+    process_index_backfill_deployment_fqns: str | None = Field(
+        default=None,
+        alias="PROCESS_INDEX_BACKFILL_DEPLOYMENT_FQNS",
+    )
     vatican_sqlite_sync_deployment_fqns: str | None = Field(
         default=None, alias="VATICAN_SQLITE_SYNC_DEPLOYMENT_FQNS"
     )

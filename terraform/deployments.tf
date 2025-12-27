@@ -244,13 +244,38 @@ locals {
     "process-document-6" = "general-6"
     "process-document-7" = "general-7"
     "process-document-8" = "general-8"
+    "process-document-default" = "default"
   }
 
-  index_deployment_queues = ["index-0", "index-1", "index-2", "index-3", "index-4", "index-5", "index-6", "index-7", "index-8"]
+  process_index_backfill_deployments = {
+    "process-index-backfill-0" = "general-0"
+    "process-index-backfill-1" = "general-1"
+    "process-index-backfill-2" = "general-2"
+    "process-index-backfill-3" = "general-3"
+    "process-index-backfill-4" = "general-4"
+    "process-index-backfill-5" = "general-5"
+    "process-index-backfill-6" = "general-6"
+    "process-index-backfill-7" = "general-7"
+    "process-index-backfill-8" = "general-8"
+    "process-index-backfill-default" = "default"
+  }
+
+  index_deployments = {
+    "0"       = "index-0"
+    "1"       = "index-1"
+    "2"       = "index-2"
+    "3"       = "index-3"
+    "4"       = "index-4"
+    "5"       = "index-5"
+    "6"       = "index-6"
+    "7"       = "index-7"
+    "8"       = "index-8"
+    "default" = "default"
+  }
 }
 
 resource "prefect_deployment" "index_document" {
-  for_each = { for idx, queue in local.index_deployment_queues : idx => queue }
+  for_each = local.index_deployments
 
   name    = "index-document-${each.key}"
   flow_id = prefect_flow.index_document.id
@@ -277,6 +302,75 @@ resource "prefect_deployment" "index_document" {
       event               = { type = "object" }
     }
     required             = ["document_id"]
+    additionalProperties = true
+  })
+
+  version = "v1"
+}
+
+resource "prefect_deployment" "process_index_backfill" {
+  for_each = local.process_index_backfill_deployments
+
+  name    = each.key
+  flow_id = prefect_flow.process_index_backfill.id
+
+  paused = false
+
+  entrypoint = "ol_etl_controlplane.flows.process_index_backfill_flow.process_index_backfill_flow"
+
+  work_pool_name  = prefect_work_pool.general.name
+  work_queue_name = each.value
+
+  enforce_parameter_schema = false
+  parameter_openapi_schema = jsonencode({
+    type = "object"
+    properties = {
+      source                = { type = "string" }
+      process_statuses_csv  = { type = "string" }
+      index_statuses_csv    = { type = "string" }
+      partition_index       = { type = "integer" }
+      num_partitions        = { type = "integer" }
+      max_docs              = { type = "integer" }
+      batch_size            = { type = "integer" }
+      rate_sleep_s          = { type = "number" }
+      dry_run               = { type = "boolean" }
+      force_process         = { type = "boolean" }
+    }
+    required             = []
+    additionalProperties = true
+  })
+
+  version = "v1"
+}
+
+resource "prefect_deployment" "process_index_backfill_enqueue" {
+  name    = "process-index-backfill-enqueue"
+  flow_id = prefect_flow.process_index_backfill_enqueue.id
+
+  paused = false
+
+  entrypoint = "ol_etl_controlplane.flows.process_index_backfill_enqueue_flow.process_index_backfill_enqueue_flow"
+
+  work_pool_name  = prefect_work_pool.general.name
+  work_queue_name = "default"
+
+  enforce_parameter_schema = false
+  parameter_openapi_schema = jsonencode({
+    type = "object"
+    properties = {
+      num_partitions       = { type = "integer" }
+      start_partition      = { type = "integer" }
+      end_partition        = { type = "integer" }
+      source               = { type = "string" }
+      process_statuses_csv = { type = "string" }
+      index_statuses_csv   = { type = "string" }
+      max_docs             = { type = "integer" }
+      batch_size           = { type = "integer" }
+      rate_sleep_s         = { type = "number" }
+      dry_run              = { type = "boolean" }
+      force_process        = { type = "boolean" }
+    }
+    required             = []
     additionalProperties = true
   })
 

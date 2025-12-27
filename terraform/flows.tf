@@ -42,6 +42,14 @@ resource "prefect_flow" "index_document" {
   name = "index_document_flow"
 }
 
+resource "prefect_flow" "process_index_backfill" {
+  name = "process_index_backfill_flow"
+}
+
+resource "prefect_flow" "process_index_backfill_enqueue" {
+  name = "process_index_backfill_enqueue_flow"
+}
+
 resource "prefect_flow" "ocr_document" {
   name = "ocr_document_flow"
 }
