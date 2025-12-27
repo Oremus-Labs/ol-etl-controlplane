@@ -10,4 +10,9 @@ resource "prefect_deployment_schedule" "process_index_backfill_enqueue_15m" {
   cron          = "*/15 * * * *"
   timezone      = "UTC"
   active        = true
+  parameters = jsonencode({
+    num_partitions          = 20
+    min_updated_age_minutes = 15
+    batch_size              = 200
+  })
 }
